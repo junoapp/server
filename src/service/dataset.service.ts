@@ -53,21 +53,25 @@ export default class DatasetService {
 
     return {
       id: dataset.id,
+      name: dataset.originalname,
       fields: header,
     };
   }
 
   public async updateColumns(datasetId: number, columns: DatasetColumnRequest[]): Promise<void> {
-    const dataset = await this.entityManager.findOne(Dataset, datasetId);
+    await this.entityManager.transaction(async (entityManager) => {
+      const dataset = await entityManager.findOne(Dataset, datasetId);
+      await entityManager.delete(DatasetColumn, { dataset: dataset.id });
 
-    for (const column of columns) {
-      const newColumn = new DatasetColumn();
-      newColumn.name = column.name;
-      newColumn.type = column.type;
-      newColumn.dataset = dataset;
+      for (const column of columns) {
+        const newColumn = new DatasetColumn();
+        newColumn.name = column.name;
+        newColumn.type = column.type;
+        newColumn.dataset = dataset;
 
-      await this.entityManager.save(DatasetColumn, newColumn);
-    }
+        await entityManager.save(DatasetColumn, newColumn);
+      }
+    });
   }
 
   public async delete(id: number): Promise<void> {
