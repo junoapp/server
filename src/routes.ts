@@ -1,8 +1,11 @@
 import * as multer from 'multer';
 
 import DatasetController from './controller/dataset.controller';
+import NanocubeController from './controller/nanocube.controller';
 
 const datasetController = new DatasetController();
+const nanocubeController = new NanocubeController();
+
 const storage = multer.diskStorage({
   destination: (_, __, callback) => {
     callback(null, 'uploads/');
@@ -45,5 +48,15 @@ export const AppRoutes = [
     path: 'dataset/:id',
     method: 'delete',
     action: datasetController.delete,
+  },
+  {
+    path: 'nanocube/stop',
+    method: 'get',
+    action: nanocubeController.stopServer,
+  },
+  {
+    path: 'nanocube/:id',
+    method: 'get',
+    action: nanocubeController.generateMap,
   },
 ];

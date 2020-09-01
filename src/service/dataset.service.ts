@@ -49,7 +49,7 @@ export default class DatasetService {
     const fileData = fs.readFileSync(dataset.path, 'utf8');
     const lines = fileData.split(/\r?\n/);
 
-    const header = lines[0].split(',');
+    const header = lines[0].replace(/\"/g, '').split(',');
 
     return {
       id: dataset.id,
