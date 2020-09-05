@@ -5,6 +5,7 @@ import { Dataset } from '../entity/Dataset';
 import { UploadResponse } from '../dto/upload-response';
 import { DatasetColumn } from '../entity/DatasetColumn';
 import { DatasetColumnRequest } from '../dto/dataset-column-request';
+import logger from '../utils/logger';
 
 export default class DatasetService {
   private static singletonInstance: DatasetService;
@@ -81,7 +82,17 @@ export default class DatasetService {
       await entityManager.delete(DatasetColumn, { dataset: id });
       await entityManager.delete(Dataset, id);
 
-      fs.unlinkSync(dataset.path);
+      try {
+        fs.unlinkSync(dataset.path);
+        if (dataset.nanocubeMapPath) {
+          fs.unlinkSync(dataset.nanocubeMapPath);
+        }
+        if (dataset.nanocubeFilePath) {
+          fs.unlinkSync(dataset.nanocubeFilePath);
+        }
+      } catch (error) {
+        logger.error('Some file does not exist');
+      }
     });
   }
 }
