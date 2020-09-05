@@ -87,7 +87,7 @@ export default class NanocubeService {
     const internalNanocubePath = `nanocubes/${dataset.originalname}.nanocube`;
     const nanocubePath = path.join(__dirname, `../../${internalNanocubePath}`);
 
-    const nanocube = spawn('nanocube', ['serve', '51234', `crimes=${nanocubePath}`]);
+    const nanocube = spawn('nanocube', ['serve', '51234', `juno=${nanocubePath}`]);
 
     logger.warn(`PID ${nanocube.pid}`);
 
