@@ -12,6 +12,9 @@ export class DatasetColumn extends BasicColumns {
   name: string;
 
   @Column()
+  index: number;
+
+  @Column()
   type: DatasetColumnType;
 
   @ManyToOne((type) => Dataset, (dataset) => dataset.columns)

@@ -69,6 +69,7 @@ export default class DatasetService {
         newColumn.name = column.name;
         newColumn.type = column.type;
         newColumn.dataset = dataset;
+        newColumn.index = column.index;
 
         await entityManager.save(DatasetColumn, newColumn);
       }

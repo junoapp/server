@@ -134,7 +134,7 @@ export default class NanocubeService {
 
       if (isDimension) {
         let b = Math.ceil(Math.log(stat.distinct) / Math.log(2));
-        let l = b > 8 ? b % 8 : 1;
+        let l = b > 8 ? (b % 8) + 1 : 1;
 
         b = Math.min(b, 8);
         l = Math.max(l, 1);
