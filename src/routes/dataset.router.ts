@@ -27,6 +27,11 @@ export const datasetRoutes: Router[] = [
     action: datasetController.getAll,
   },
   {
+    path: 'dataset/:id',
+    method: 'get',
+    action: datasetController.getById,
+  },
+  {
     path: 'dataset/upload',
     method: 'post',
     middleware: uploader.single('file'),

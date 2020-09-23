@@ -11,6 +11,12 @@ export default class DatasetController {
     response.send(datasets);
   }
 
+  public async getById(request: Request, response: Response): Promise<void> {
+    const dataset = await datasetService.getById(+request.params.id);
+
+    response.send(dataset);
+  }
+
   public async upload(request: Request, response: Response): Promise<void> {
     if (request.file) {
       const dataset = await datasetService.upload(request.file);
