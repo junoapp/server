@@ -1,5 +1,6 @@
 import * as multer from 'multer';
 import DatasetController from '../controller/dataset.controller';
+import { convertName } from '../utils/functions';
 import { Router } from './router';
 
 const datasetController = new DatasetController();
@@ -14,7 +15,7 @@ const storage = multer.diskStorage({
     const nameWithoutExtension = nameSplit.join('.');
 
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    callback(null, `${nameWithoutExtension}-${uniqueSuffix}.${extension}`);
+    callback(null, `${convertName(nameWithoutExtension)}-${uniqueSuffix}.${extension}`);
   },
 });
 
