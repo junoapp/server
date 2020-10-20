@@ -12,6 +12,9 @@ export class DatasetColumn extends BasicColumns {
   name: string;
 
   @Column()
+  dataType: DatasetDataType;
+
+  @Column()
   index: number;
 
   @Column()
@@ -24,4 +27,11 @@ export class DatasetColumn extends BasicColumns {
 export enum DatasetColumnType {
   DIMENSION = 'dimension',
   MEASURE = 'measure',
+}
+
+export enum DatasetDataType {
+  STRING = 'string',
+  NUMBER = 'number',
+  BOOLEAN = 'boolean',
+  DATE = 'date',
 }

@@ -19,8 +19,8 @@ export default class DatasetController {
 
   public async upload(request: Request, response: Response): Promise<void> {
     if (request.file) {
-      response.send({});
-      datasetService.upload(request.file);
+      const dataset = await datasetService.upload(request.file);
+      response.send(dataset);
     } else {
       response.status(400).send({ error: 'File not found' });
     }
