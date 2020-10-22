@@ -12,7 +12,7 @@ import { DatasetColumn, DatasetColumnType } from '../entity/DatasetColumn';
 import { DatasetColumnRequest } from '../dto/dataset-column-request';
 import logger from '../utils/logger';
 import { stringify } from 'querystring';
-import { convertName } from '../utils/functions';
+import { convertName, getFilename } from '../utils/functions';
 
 export default class DatasetService {
   private static singletonInstance: DatasetService;
@@ -36,6 +36,8 @@ export default class DatasetService {
   }
 
   public async upload(file: Express.Multer.File): Promise<Dataset> {
+    const [name] = getFilename(file.originalname);
+
     let dataset = new Dataset();
     dataset.path = file.path;
     dataset.fieldname = file.fieldname;
@@ -45,6 +47,7 @@ export default class DatasetService {
     dataset.size = file.size;
     dataset.destination = file.destination;
     dataset.filename = file.filename;
+    dataset.tableName = name;
 
     this.insertClickhouse(dataset)
       .then(() => console.log('success'))
@@ -94,12 +97,6 @@ export default class DatasetService {
 
       try {
         fs.unlinkSync(dataset.path);
-        if (dataset.nanocubeMapPath) {
-          fs.unlinkSync(dataset.nanocubeMapPath);
-        }
-        if (dataset.nanocubeFilePath) {
-          fs.unlinkSync(dataset.nanocubeFilePath);
-        }
       } catch (error) {
         logger.error('Some file does not exist');
       }

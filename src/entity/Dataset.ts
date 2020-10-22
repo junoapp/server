@@ -32,10 +32,7 @@ export class Dataset extends BasicColumns {
   filename: string;
 
   @Column({ nullable: true })
-  nanocubeMapPath: string;
-
-  @Column({ nullable: true })
-  nanocubeFilePath: string;
+  tableName: string;
 
   @OneToMany((type) => DatasetColumn, (columns) => columns.dataset)
   columns: DatasetColumn[];

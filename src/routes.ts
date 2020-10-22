@@ -1,4 +1,4 @@
 import { datasetRoutes } from './routes/dataset.router';
-import { nanocubeRoutes } from './routes/nanocube.router';
+import { dashboardRoutes } from './routes/dashboard.router';
 
-export const AppRoutes = [...datasetRoutes, ...nanocubeRoutes];
+export const AppRoutes = [...datasetRoutes, ...dashboardRoutes];

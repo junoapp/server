@@ -6,3 +6,11 @@ export const convertName = (name: string): string => {
     .replace(/\s+/g, '_')
     .replace(/[^\w+\d+]/g, '');
 };
+
+export const getFilename = (name: string): [string, string] => {
+  const nameSplit = name.split('.');
+  const extension = nameSplit.pop();
+  const nameWithoutExtension = nameSplit.join('.');
+
+  return [convertName(nameWithoutExtension), extension];
+};

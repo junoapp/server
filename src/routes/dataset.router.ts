@@ -1,6 +1,6 @@
 import * as multer from 'multer';
 import DatasetController from '../controller/dataset.controller';
-import { convertName } from '../utils/functions';
+import { getFilename } from '../utils/functions';
 import { Router } from './router';
 
 const datasetController = new DatasetController();
@@ -10,12 +10,10 @@ const storage = multer.diskStorage({
     callback(null, 'uploads/');
   },
   filename: function (_, file, callback) {
-    const nameSplit = file.originalname.split('.');
-    const extension = nameSplit.pop();
-    const nameWithoutExtension = nameSplit.join('.');
+    const [name, extension] = getFilename(file.originalname);
 
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    callback(null, `${convertName(nameWithoutExtension)}-${uniqueSuffix}.${extension}`);
+    callback(null, `${name}-${uniqueSuffix}.${extension}`);
   },
 });
 
