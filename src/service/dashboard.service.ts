@@ -1,5 +1,7 @@
 import { ClickHouse } from 'clickhouse';
-import { DatasetDataType } from '../entity/DatasetColumn';
+import { recommend, schema, result } from 'compassql';
+
+import { DatasetColumnType } from '../entity/DatasetColumn';
 
 import DatasetService from './dataset.service';
 
@@ -12,10 +14,10 @@ export default class DashboardService {
 
   private constructor() {}
 
-  public async getAll(datasetId: number, columnId: number): Promise<any[]> {
+  public async getAll(datasetId: number, name: string, value?: string): Promise<any[]> {
     const dataset = await DatasetService.instance.getById(datasetId);
 
-    const column = dataset.columns.find((col) => col.id === columnId);
+    const column = dataset.columns.find((col) => col.name === name);
 
     const clickhouse = new ClickHouse({
       url: 'http://localhost',
@@ -36,7 +38,57 @@ export default class DashboardService {
       },
     });
 
-    if (column.dataType === DatasetDataType.DATE) {
+    const valueName = value === 'count(*)' ? 'count' : value;
+
+    const q = value
+      ? `SELECT ${name}, ${value} as "${valueName}" FROM juno.${dataset.tableName} ${value === 'count(*)' ? `GROUP BY ${name}` : ''} LIMIT 1000`
+      : `SELECT ${name} FROM juno.${dataset.tableName} LIMIT 1000`;
+
+    const d = await clickhouse.query(q).toPromise();
+
+    const sch = schema.build(d);
+
+    const encodings: any[] = [
+      {
+        channel: 'x',
+        aggregate: '?',
+        field: name,
+        type: column.expandedType,
+      },
+    ];
+
+    if (value) {
+      const columnValue = dataset.columns.find((col) => col.name === value);
+
+      encodings.push({
+        channel: 'y',
+        aggregate: valueName === 'count' ? 'count' : '?',
+        field: valueName === 'count' ? '*' : valueName,
+        type: columnValue ? columnValue.expandedType : 'quantitative',
+      });
+    }
+
+    const rs = recommend(
+      {
+        spec: {
+          data: { values: d },
+          mark: '?',
+          encodings,
+        },
+        chooseBy: 'effectiveness',
+      },
+      sch
+    );
+
+    var vlTree = result.mapLeaves(rs.result, function (item) {
+      return item.toSpec();
+    });
+
+    console.log(vlTree.items);
+
+    return vlTree.items[0];
+
+    if (column.type === DatasetColumnType.DATE) {
       type DateInfo = { min: Date; max: Date; year: number; quarter: number; month: number; week: number; day: number };
 
       const dataInfo: Array<Object> = await clickhouse
@@ -68,8 +120,12 @@ export default class DashboardService {
 
       const columnName = `formatDateTime(${column.name}, '${format}')`;
 
-      return clickhouse.query(`SELECT ${columnName} as "name", count(*) as "value" FROM juno.${dataset.tableName} GROUP BY ${columnName} ORDER BY ${columnName} ASC`).toPromise();
-    } else if (column.dataType === DatasetDataType.NUMBER) {
+      const query = `SELECT ${columnName} as "name", ${value} as "value" FROM juno.${dataset.tableName} GROUP BY ${columnName} ORDER BY ${columnName} ASC`;
+
+      console.log(query);
+
+      return clickhouse.query(query).toPromise();
+    } else if (column.type === DatasetColumnType.NUMBER) {
       // const dataInfo: Array<Object> = await clickhouse
       //   .query(
       //     `
@@ -107,6 +163,10 @@ export default class DashboardService {
       // }
     }
 
-    return clickhouse.query(`SELECT ${column.name} as "name", count(*) as "value" FROM juno.${dataset.tableName} GROUP BY ${column.name} ORDER BY ${column.name} ASC`).toPromise();
+    const query = `SELECT ${column.name} as "name", ${value} as "value" FROM juno.${dataset.tableName} GROUP BY ${column.name} ORDER BY ${column.name} ASC`;
+
+    console.log(query);
+
+    return clickhouse.query(query).toPromise();
   }
 }

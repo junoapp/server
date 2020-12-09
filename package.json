@@ -16,10 +16,12 @@
   "dependencies": {
     "body-parser": "^1.19.0",
     "clickhouse": "^2.1.5",
+    "compassql": "^0.21.2",
     "cors": "^2.8.5",
     "datalib": "^1.9.3",
     "date-fns": "^2.16.0",
     "express": "^4.17.1",
+    "firstline": "^2.0.2",
     "got": "^11.7.0",
     "morgan": "^1.10.0",
     "multer": "^1.4.2",
@@ -30,6 +32,6 @@
     "winston": "^3.3.3"
   },
   "scripts": {
-    "start": "nodemon --watch 'src/**/*.ts' --ignore 'src/**/*.spec.ts' --exec 'ts-node' src/index.ts"
+    "start": "nodemon --max-old-space-size=8000 --watch 'src/**/*.ts' --ignore 'src/**/*.spec.ts' --exec 'ts-node' src/index.ts"
   }
 }

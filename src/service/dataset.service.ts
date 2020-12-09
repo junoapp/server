@@ -5,14 +5,16 @@ import { ClickHouse } from 'clickhouse';
 import got from 'got';
 import { parse, unparse } from 'papaparse';
 import { format, parse as dateParse } from 'date-fns';
+import * as firstline from 'firstline';
 
 import { Dataset } from '../entity/Dataset';
 import { UploadResponse } from '../dto/upload-response';
-import { DatasetColumn, DatasetColumnType } from '../entity/DatasetColumn';
+import { DatasetColumn, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '../entity/DatasetColumn';
 import { DatasetColumnRequest } from '../dto/dataset-column-request';
 import logger from '../utils/logger';
 import { stringify } from 'querystring';
 import { convertName, getFilename } from '../utils/functions';
+import { convert, SET_DATE_METHOD, SingleTimeUnit, TimeUnit, TIMEUNIT_PARTS, UtcTimeUnit, UTC_TIMEUNIT_INDEX } from '../utils/timeunit';
 
 export default class DatasetService {
   private static singletonInstance: DatasetService;
@@ -51,7 +53,7 @@ export default class DatasetService {
 
     this.insertClickhouse(dataset)
       .then(() => console.log('success'))
-      .catch(() => console.log('error'));
+      .catch((error) => console.log('error', error));
 
     return await this.entityManager.save(Dataset, dataset);
   }
@@ -79,7 +81,7 @@ export default class DatasetService {
       for (const column of columns) {
         const newColumn = new DatasetColumn();
         newColumn.name = column.name;
-        newColumn.type = column.type;
+        newColumn.role = column.role;
         newColumn.dataset = dataset;
         newColumn.index = column.index;
 
@@ -268,7 +270,7 @@ export default class DatasetService {
                 types.push({
                   nullable: true,
                   name: key,
-                  type: 'String',
+                  type: 'string',
                 });
               }
             }
@@ -387,31 +389,24 @@ export default class DatasetService {
               body: newFileData,
             });
 
-            const selectColumns = columnArray.map((column) => `count(DISTINCT(${column.name})) AS "${column.name}"`).join(',');
-
-            const countQuery = await clickhouse
-              .query(
-                `
-                select 
-                  count(*) as "total", 
-                  ${selectColumns}
-                from juno.${name}`
-              )
-              .toPromise();
+            columnArray = await this.getExpandedType(clickhouse, name, columnArray);
 
             for (const column of columnArray) {
-              let type = DatasetColumnType.DIMENSION;
+              let role = DatasetColumnRole.DIMENSION;
 
-              if (column.typeName === 'number' && countQuery[0]['total'] - countQuery[0][column.name] < countQuery[0]['total'] * 0.1) {
-                type = DatasetColumnType.MEASURE;
+              if (column.typeName === 'number') {
+                role = DatasetColumnRole.MEASURE;
               }
 
               const newColumn = new DatasetColumn();
               newColumn.name = column.name;
-              newColumn.dataType = column.typeName;
+              newColumn.type = column.typeName;
+              newColumn.expandedType = column.expandedType;
               newColumn.index = 0;
-              newColumn.type = type;
+              newColumn.role = role;
               newColumn.dataset = dataset;
+              newColumn.isPrimaryKey = false;
+              newColumn.isForeignKey = false;
 
               await this.entityManager.save(DatasetColumn, newColumn);
             }
@@ -424,5 +419,183 @@ export default class DatasetService {
         },
       });
     });
+  }
+
+  private async getExpandedType(clickhouse, name: string, columnArray: any[]) {
+    const data = await clickhouse.query(`select * from juno.${name}`).toPromise();
+
+    let summaries = datalib.summary(data);
+    let types = datalib.type.inferAll(data);
+
+    const opt = {
+      numberNominalLimit: 40,
+      numberNominalProportion: 0.05,
+      minPercentUniqueForKey: 0.8,
+      minCardinalityForKey: 50,
+      enum: {
+        binProps: {
+          maxbins: [5, 10, 20],
+          extent: [undefined],
+          base: [10],
+          step: [undefined],
+          steps: [undefined],
+          minstep: [undefined],
+          divide: [[5, 2]],
+          binned: [false],
+          anchor: [undefined],
+          nice: [true],
+        },
+        timeUnit: [undefined, TimeUnit.YEAR, TimeUnit.MONTH, TimeUnit.MINUTES, TimeUnit.SECONDS],
+      },
+    };
+
+    let fieldSchemas = summaries.map((fieldProfile, index) => {
+      const name: string = fieldProfile.field;
+      const columnIndex = columnArray.findIndex((c) => c.name === name);
+      const column = columnArray[columnIndex];
+
+      console.log(column.name, column.typeName, types[name]);
+
+      // In Table schema, 'date' doesn't include time so use 'datetime'
+      const type: DatasetColumnType = column.typeName === 'date' ? DatasetColumnType.DATE : (column.typeName as any);
+
+      let distinct: number = fieldProfile.distinct;
+      let expandedType: DatasetColumnExpandedType;
+
+      if (type === DatasetColumnType.NUMBER) {
+        expandedType = DatasetColumnExpandedType.QUANTITATIVE;
+      } else if (type === DatasetColumnType.INTEGER) {
+        // use ordinal or nominal when cardinality of integer type is relatively low and the distinct values are less than an amount specified in options
+        if (distinct < opt.numberNominalLimit && distinct / fieldProfile.count < opt.numberNominalProportion) {
+          expandedType = DatasetColumnExpandedType.NOMINAL;
+        } else {
+          expandedType = DatasetColumnExpandedType.QUANTITATIVE;
+        }
+      } else if (type === DatasetColumnType.DATE) {
+        expandedType = DatasetColumnExpandedType.TEMPORAL;
+        // need to get correct min/max of date data because datalib's summary method does not
+        // calculate this correctly for date types.
+        fieldProfile.min = new Date(data[0][name]);
+        fieldProfile.max = new Date(data[0][name]);
+        for (const dataEntry of data) {
+          const time = new Date(dataEntry[name]).getTime();
+          if (time < (fieldProfile.min as Date).getTime()) {
+            fieldProfile.min = new Date(time);
+          }
+          if (time > (fieldProfile.max as Date).getTime()) {
+            fieldProfile.max = new Date(time);
+          }
+        }
+      } else {
+        expandedType = DatasetColumnExpandedType.NOMINAL;
+      }
+
+      if (expandedType === DatasetColumnExpandedType.NOMINAL && distinct / fieldProfile.count > opt.minPercentUniqueForKey && fieldProfile.count > opt.minCardinalityForKey) {
+        expandedType = DatasetColumnExpandedType.KEY;
+      }
+
+      let fieldSchema = {
+        name,
+        // Need to keep original index for re-exporting TableSchema
+        originalIndex: index,
+        expandedType,
+        type,
+        stats: fieldProfile,
+        timeStats: {} as { [timeUnit: string]: DLFieldProfile },
+        binStats: {} as { [key: string]: DLFieldProfile },
+      };
+
+      columnArray[columnIndex].expandedType = expandedType;
+
+      // extend field schema with table schema field - if present
+      // const orgFieldSchema = tableSchemaFieldIndex[fieldSchema.name];
+      // fieldSchema = extend(fieldSchema, orgFieldSchema);
+
+      return fieldSchema;
+    });
+
+    // calculate preset bins for quantitative and temporal data
+    for (let fieldSchema of fieldSchemas) {
+      if (fieldSchema.vlType === DatasetColumnExpandedType.QUANTITATIVE) {
+        for (let maxbins of opt.enum.binProps.maxbins) {
+          fieldSchema.binStats[maxbins] = this.binSummary(maxbins, fieldSchema.stats);
+        }
+      } else if (fieldSchema.vlType === DatasetColumnExpandedType.TEMPORAL) {
+        for (let unit of opt.enum.timeUnit) {
+          if (unit !== undefined) {
+            fieldSchema.timeStats[unit] = this.timeSummary(unit, fieldSchema.stats);
+          }
+        }
+      }
+    }
+
+    return columnArray;
+  }
+
+  /**
+   * @return a summary of the binning scheme determined from the given max number of bins
+   */
+  private binSummary(maxbins: number, summary: DLFieldProfile): DLFieldProfile {
+    const bin = datalib.bins({
+      min: summary.min,
+      max: summary.max,
+      maxbins: maxbins,
+    });
+
+    // start with summary, pre-binning
+    const result = datalib.extend({}, summary);
+    result.unique = this.binUnique(bin, summary.unique);
+    result.distinct = (bin.stop - bin.start) / bin.step;
+    result.min = bin.start;
+    result.max = bin.stop;
+
+    return result;
+  }
+
+  /**
+   * @return a new unique object based off of the old unique count and a binning scheme
+   */
+  private binUnique(bin: any, oldUnique: any) {
+    const newUnique = {};
+    for (let value in oldUnique) {
+      let bucket: number;
+      if (value === null) {
+        bucket = null;
+      } else if (isNaN(Number(value))) {
+        bucket = NaN;
+      } else {
+        bucket = bin.value(Number(value)) as number;
+      }
+      newUnique[bucket] = (newUnique[bucket] || 0) + oldUnique[value];
+    }
+    return newUnique;
+  }
+
+  /** @return a modified version of the passed summary with unique and distinct set according to the timeunit.
+   *  Maps 'null' (string) keys to the null value and invalid dates to 'Invalid Date' in the unique dictionary.
+   */
+  private timeSummary(timeunit: TimeUnit, summary: DLFieldProfile): DLFieldProfile {
+    const result = datalib.extend({}, summary);
+
+    let unique: { [value: string]: number } = {};
+    datalib.keys(summary.unique).forEach(function (dateString) {
+      // don't convert null value because the Date constructor will actually convert it to a date
+      let date: Date = dateString === 'null' ? null : new Date(dateString);
+      // at this point, `date` is either the null value, a valid Date object, or "Invalid Date" which is a Date
+      let key: string;
+      if (date === null) {
+        key = null;
+      } else if (isNaN(date.getTime())) {
+        key = 'Invalid Date';
+      } else {
+        key = (timeunit === TimeUnit.DAY ? date.getDay() : convert(timeunit, date)).toString();
+      }
+      unique[key] = (unique[key] || 0) + summary.unique[dateString];
+    });
+
+    result.unique = unique;
+    result.distinct = datalib.keys(unique).length;
+
+    return result;
   }
 }

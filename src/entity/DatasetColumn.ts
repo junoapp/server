@@ -11,27 +11,54 @@ export class DatasetColumn extends BasicColumns {
   @Column()
   name: string;
 
-  @Column()
-  dataType: DatasetDataType;
+  @Column({ nullable: true })
+  title: string;
+
+  @Column({ nullable: true })
+  description: string;
 
   @Column()
   index: number;
 
+  @Column({ nullable: true })
+  originalIndex: number;
+
+  @Column()
+  role: DatasetColumnRole;
+
   @Column()
   type: DatasetColumnType;
+
+  @Column({ nullable: true })
+  expandedType: DatasetColumnExpandedType;
+
+  @Column()
+  isPrimaryKey: boolean;
+
+  @Column()
+  isForeignKey: boolean;
 
   @ManyToOne((type) => Dataset, (dataset) => dataset.columns)
   dataset: Dataset;
 }
 
-export enum DatasetColumnType {
+export enum DatasetColumnRole {
   DIMENSION = 'dimension',
   MEASURE = 'measure',
 }
 
-export enum DatasetDataType {
+export enum DatasetColumnType {
   STRING = 'string',
   NUMBER = 'number',
+  INTEGER = 'integer',
   BOOLEAN = 'boolean',
   DATE = 'date',
+}
+
+export enum DatasetColumnExpandedType {
+  QUANTITATIVE = 'quantitative',
+  ORDINAL = 'ordinal',
+  TEMPORAL = 'temporal',
+  NOMINAL = 'nominal',
+  KEY = 'key',
 }
