@@ -12,4 +12,9 @@ export const dashboardRoutes: Router[] = [
     method: 'get',
     action: dashboardController.getAll,
   },
+  {
+    path: 'dashboard/:datasetId/spec',
+    method: 'post',
+    action: dashboardController.getSpec,
+  },
 ];

@@ -1,4 +1,8 @@
 export const convertName = (name: string): string => {
+  if (/^\d+$/.test(name)) {
+    return 'teste';
+  }
+
   return name
     .trim()
     .split('.')[0]

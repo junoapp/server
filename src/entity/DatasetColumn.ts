@@ -38,6 +38,12 @@ export class DatasetColumn extends BasicColumns {
   @Column()
   isForeignKey: boolean;
 
+  @Column()
+  distinctValues: number;
+
+  @Column()
+  isCount: boolean;
+
   @ManyToOne((type) => Dataset, (dataset) => dataset.columns)
   dataset: Dataset;
 }
@@ -60,5 +66,6 @@ export enum DatasetColumnExpandedType {
   ORDINAL = 'ordinal',
   TEMPORAL = 'temporal',
   NOMINAL = 'nominal',
+  GEO = 'geo',
   KEY = 'key',
 }

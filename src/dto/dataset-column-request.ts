@@ -1,3 +1,3 @@
 import { DatasetColumnRole } from '../entity/DatasetColumn';
 
-export type DatasetColumnRequest = { name: string; index: number; role: DatasetColumnRole };
+export type DatasetColumnRequest = { id: number; name: string; index: number; role: DatasetColumnRole };

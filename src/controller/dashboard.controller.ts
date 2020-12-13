@@ -9,4 +9,10 @@ export default class DashboardController {
 
     response.send(datasets);
   }
+
+  public async getSpec(request: Request, response: Response): Promise<void> {
+    const datasets = await dashboardService.getSpec(+request.params.datasetId, request.body);
+
+    response.send(datasets);
+  }
 }

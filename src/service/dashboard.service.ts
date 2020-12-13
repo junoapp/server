@@ -14,6 +14,61 @@ export default class DashboardService {
 
   private constructor() {}
 
+  public async getSpec(datasetId: number, spec: any[]): Promise<any[]> {
+    const dataset = await DatasetService.instance.getById(datasetId);
+
+    // const column = dataset.columns.find((col) => col.name === name);
+
+    const clickhouse = new ClickHouse({
+      url: 'http://localhost',
+      port: 8123,
+      basicAuth: {
+        username: 'default',
+        password: '',
+      },
+      isUseGzip: true,
+      format: 'csv',
+      config: {
+        session_id: 'session_id if neeed',
+        session_timeout: 60,
+        output_format_json_quote_64bit_integers: 0,
+        enable_http_compression: 0,
+        database: 'juno',
+        max_partitions_per_insert_block: 1000,
+      },
+    });
+
+    const q = `SELECT ${spec[0].field}, sum(${spec[1].field}) as "${spec[1].field}" FROM juno.${dataset.tableName} group by ${spec[0].field} order by ${spec[0].field} asc`;
+
+    const d = await clickhouse.query(q).toPromise();
+
+    console.log(d);
+
+    const sch = schema.build(d);
+
+    const rs = recommend(
+      {
+        spec: {
+          data: { values: d },
+          mark: '?',
+          encodings: spec,
+        },
+        orderBy: ['aggregationQuality', 'effectiveness'],
+        chooseBy: ['aggregationQuality', 'effectiveness'],
+        groupBy: 'encoding',
+      },
+      sch
+    );
+
+    var vlTree = result.mapLeaves(rs.result, function (item) {
+      return item.toSpec();
+    });
+
+    console.log(vlTree.items);
+
+    return vlTree.items[0];
+  }
+
   public async getAll(datasetId: number, name: string, value?: string): Promise<any[]> {
     const dataset = await DatasetService.instance.getById(datasetId);
 
@@ -50,8 +105,9 @@ export default class DashboardService {
 
     const encodings: any[] = [
       {
-        channel: 'x',
+        channel: '?',
         aggregate: '?',
+        timeUnit: '?',
         field: name,
         type: column.expandedType,
       },
@@ -61,12 +117,15 @@ export default class DashboardService {
       const columnValue = dataset.columns.find((col) => col.name === value);
 
       encodings.push({
-        channel: 'y',
+        channel: '?',
         aggregate: valueName === 'count' ? 'count' : '?',
+        timeUnit: '?',
         field: valueName === 'count' ? '*' : valueName,
         type: columnValue ? columnValue.expandedType : 'quantitative',
       });
     }
+
+    console.log(encodings);
 
     const rs = recommend(
       {
@@ -75,7 +134,9 @@ export default class DashboardService {
           mark: '?',
           encodings,
         },
-        chooseBy: 'effectiveness',
+        orderBy: ['aggregationQuality', 'effectiveness'],
+        chooseBy: ['aggregationQuality', 'effectiveness'],
+        groupBy: 'encoding',
       },
       sch
     );

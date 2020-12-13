@@ -34,7 +34,13 @@ export default class DatasetService {
   }
 
   public async getById(id: number): Promise<Dataset> {
-    return this.entityManager.findOne(Dataset, { where: { id }, relations: ['columns'], order: { updatedDate: 'DESC' } });
+    return this.entityManager
+      .createQueryBuilder(Dataset, 'dataset')
+      .leftJoinAndSelect('dataset.columns', 'columns')
+      .where('dataset.id = :id', { id })
+      .orderBy('columns.role', 'ASC')
+      .addOrderBy('columns.name', 'ASC')
+      .getOne();
   }
 
   public async upload(file: Express.Multer.File): Promise<Dataset> {
@@ -58,36 +64,36 @@ export default class DatasetService {
     return await this.entityManager.save(Dataset, dataset);
   }
 
-  public async getColumns(id: number): Promise<UploadResponse> {
-    const dataset = await this.getById(id);
+  public async getColumns(datasetId: number): Promise<Dataset> {
+    const dataset = await this.getById(datasetId);
 
-    const fileData = fs.readFileSync(dataset.path, 'utf8');
-    const lines = fileData.split(/\r?\n/);
-
-    const header = lines[0].replace(/\"/g, '').split(',');
-
-    return {
-      id: dataset.id,
-      name: dataset.originalname,
-      fields: header,
-    };
+    return dataset;
   }
 
   public async updateColumns(datasetId: number, columns: DatasetColumnRequest[]): Promise<void> {
-    await this.entityManager.transaction(async (entityManager) => {
-      const dataset = await entityManager.findOne(Dataset, datasetId);
-      await entityManager.delete(DatasetColumn, { dataset: dataset.id });
+    await this.entityManager
+      .transaction(async (entityManager) => {
+        // const dataset = await entityManager.findOne(Dataset, datasetId);
+        // await entityManager.delete(DatasetColumn, { dataset: dataset.id });
 
-      for (const column of columns) {
-        const newColumn = new DatasetColumn();
-        newColumn.name = column.name;
-        newColumn.role = column.role;
-        newColumn.dataset = dataset;
-        newColumn.index = column.index;
+        const ids = columns.map((c) => c.id);
+        console.log(ids);
+        await entityManager.createQueryBuilder().delete().from(DatasetColumn).where('id not in (:...ids)', { ids }).andWhere('dataset_id = :dataset', { dataset: datasetId }).execute();
 
-        await entityManager.save(DatasetColumn, newColumn);
-      }
-    });
+        for (const columnRequest of columns) {
+          const column = await entityManager.findOne(DatasetColumn, columnRequest.id);
+
+          // column.name = columnRequest.name;
+          column.role = columnRequest.role;
+          // column.dataset = dataset;
+          column.index = columnRequest.index;
+
+          await entityManager.save(DatasetColumn, column);
+        }
+      })
+      .catch((error) => {
+        console.log(error);
+      });
   }
 
   public async delete(id: number): Promise<void> {
@@ -136,11 +142,19 @@ export default class DatasetService {
             }
 
             const dateFields = [];
+            const moneyFields = [];
+
             for (const key of data.meta.fields) {
               if (data.data[0][key] && data.data[0][key].includes && (data.data[0][key].includes('/') || data.data[0][key].includes('-') || data.data[0][key].includes(':'))) {
                 dateFields.push(key);
               }
+
+              if (data.data[0][key] && data.data[0][key].includes && data.data[0][key].includes('$')) {
+                moneyFields.push(key);
+              }
             }
+
+            console.log(moneyFields);
 
             const dates: number[][] = [[], [], []];
             const times: string[] = [];
@@ -180,6 +194,10 @@ export default class DatasetService {
                   continue;
                 }
 
+                if (isNaN(+part1) || isNaN(+part2) || isNaN(+part3)) {
+                  continue;
+                }
+
                 newDateFields[dateField] = true;
 
                 dates[0].push(+part1);
@@ -216,6 +234,14 @@ export default class DatasetService {
                   return prev;
                 }
 
+                if (typeof curr[key] === 'object') {
+                  return prev;
+                }
+
+                if (moneyFields.includes(key) && curr[key] && curr[key].replace) {
+                  curr[key] = Number(curr[key].replace(/[^0-9.-]+/g, ''));
+                }
+
                 const type = typeof curr[key];
 
                 if (type === 'object') {
@@ -250,6 +276,7 @@ export default class DatasetService {
                   nullable: keys[0].count < checkRows.length,
                   name: key,
                   type: 'DateTime',
+                  distinctValues: keys[0].distinct,
                 });
 
                 if (!primaryKeyDate && keys[0].count === checkRows.length) {
@@ -260,6 +287,7 @@ export default class DatasetService {
                   nullable: keys[0].count < checkRows.length,
                   name: key,
                   type: keys[0].type,
+                  distinctValues: keys[0].distinct,
                 });
 
                 if (keys[0].count === checkRows.length && keys[0].distinct < primaryKeyCount) {
@@ -271,6 +299,7 @@ export default class DatasetService {
                   nullable: true,
                   name: key,
                   type: 'string',
+                  distinctValues: keys[0].distinct,
                 });
               }
             }
@@ -312,6 +341,16 @@ export default class DatasetService {
                   }
                 }
 
+                for (const moneyField of moneyFields) {
+                  if (item[moneyField] && item[moneyField].replace) {
+                    item[moneyField] = Number(item[moneyField].replace(/[^0-9.-]+/g, ''));
+                  }
+                }
+
+                // if (moneyFields.includes(key) && curr[key] && curr[key].replace) {
+                //   curr[key] = Number(curr[key].replace(/[^0-9.-]+/g, ''));
+                // }
+
                 newData.push(item);
               }
             }
@@ -332,10 +371,14 @@ export default class DatasetService {
             let columnArray = [];
             types.forEach((typeObj) => {
               let type = fieldMap[typeObj.type] || typeObj.type;
-              const name = typeObj.name;
+              let name = typeObj.name;
 
               if (typeObj.nullable) {
                 type = `Nullable(${type})`;
+              }
+
+              if (columnArray.find((c) => c.name === name)) {
+                name += Math.floor(Math.random() * 1000);
               }
 
               columnArray.push({
@@ -343,8 +386,11 @@ export default class DatasetService {
                 type,
                 typeName: typeObj.type === 'DateTime' ? 'date' : typeObj.type,
                 column: `${name} ${type}`,
+                distinctValues: typeObj.distinctValues,
               });
             });
+
+            console.log(columnArray);
 
             const columns = columnArray.map((c) => c.column).join(',');
             const clickhouse = new ClickHouse({
@@ -391,6 +437,13 @@ export default class DatasetService {
 
             columnArray = await this.getExpandedType(clickhouse, name, columnArray);
 
+            columnArray.push({
+              name: 'count',
+              typeName: 'number',
+              expandedType: DatasetColumnExpandedType.QUANTITATIVE,
+              isCount: true,
+            });
+
             for (const column of columnArray) {
               let role = DatasetColumnRole.DIMENSION;
 
@@ -398,21 +451,28 @@ export default class DatasetService {
                 role = DatasetColumnRole.MEASURE;
               }
 
+              const distinctValues = await clickhouse
+                .query(column.isCount ? `SELECT COUNT(*) AS "value" FROM juno.${name}` : `SELECT COUNT(DISTINCT ${column.name}) AS "value" FROM juno.${name}`)
+                .toPromise();
+
               const newColumn = new DatasetColumn();
               newColumn.name = column.name;
               newColumn.type = column.typeName;
               newColumn.expandedType = column.expandedType;
               newColumn.index = 0;
-              newColumn.role = role;
+              newColumn.role = column.expandedType === DatasetColumnExpandedType.GEO ? DatasetColumnRole.DIMENSION : role;
               newColumn.dataset = dataset;
               newColumn.isPrimaryKey = false;
               newColumn.isForeignKey = false;
+              newColumn.distinctValues = distinctValues[0]['value'];
+              newColumn.isCount = !!column.isCount;
 
               await this.entityManager.save(DatasetColumn, newColumn);
             }
 
             resolve(true);
           } catch (error) {
+            console.log(error);
             logger.error(error);
             reject(false);
           }
@@ -454,6 +514,10 @@ export default class DatasetService {
       const columnIndex = columnArray.findIndex((c) => c.name === name);
       const column = columnArray[columnIndex];
 
+      if (!column) {
+        return null;
+      }
+
       console.log(column.name, column.typeName, types[name]);
 
       // In Table schema, 'date' doesn't include time so use 'datetime'
@@ -494,6 +558,48 @@ export default class DatasetService {
         expandedType = DatasetColumnExpandedType.KEY;
       }
 
+      const GEO_TYPES = [
+        'airport',
+        ['area', 'code'],
+        ['cbsa', 'msa'],
+        'city',
+        ['congressional', 'district'],
+        'country',
+        'region',
+        'county',
+        'latitude',
+        'longitude',
+        'nuts',
+        'state',
+        'province',
+        'lat',
+        'long',
+        'lng',
+        ['zip', 'code'],
+        ['post', 'code'],
+        ['postal', 'code'],
+      ];
+
+      for (const geoType of GEO_TYPES) {
+        if (geoType instanceof Array) {
+          let match = true;
+          for (const part of geoType) {
+            if (!name.toLowerCase().includes(part)) {
+              match = false;
+              break;
+            }
+          }
+
+          if (match) {
+            expandedType = DatasetColumnExpandedType.GEO;
+          }
+        } else {
+          if (name.toLowerCase().includes(geoType)) {
+            expandedType = DatasetColumnExpandedType.GEO;
+          }
+        }
+      }
+
       let fieldSchema = {
         name,
         // Need to keep original index for re-exporting TableSchema
@@ -516,6 +622,10 @@ export default class DatasetService {
 
     // calculate preset bins for quantitative and temporal data
     for (let fieldSchema of fieldSchemas) {
+      if (!fieldSchema) {
+        continue;
+      }
+
       if (fieldSchema.vlType === DatasetColumnExpandedType.QUANTITATIVE) {
         for (let maxbins of opt.enum.binProps.maxbins) {
           fieldSchema.binStats[maxbins] = this.binSummary(maxbins, fieldSchema.stats);
