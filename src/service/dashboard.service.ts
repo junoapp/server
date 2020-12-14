@@ -1,7 +1,8 @@
 import { ClickHouse } from 'clickhouse';
 import { recommend, schema, result } from 'compassql';
+import * as datalib from 'datalib';
 
-import { DatasetColumnType } from '../entity/DatasetColumn';
+import { DatasetColumn, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '../entity/DatasetColumn';
 
 import DatasetService from './dataset.service';
 
@@ -13,6 +14,97 @@ export default class DashboardService {
   }
 
   private constructor() {}
+
+  public async getChartRecommendatioo(datasetId: number): Promise<any[]> {
+    const dataset = await DatasetService.instance.getById(datasetId);
+
+    const newData: { dimensions: DatasetColumn[]; measures: DatasetColumn[]; spec: any[] } = {
+      dimensions: [],
+      measures: [],
+      spec: [],
+    };
+
+    for (const column of dataset.columns) {
+      if (column.role === DatasetColumnRole.DIMENSION) {
+        if (column.type === DatasetColumnType.STRING) {
+          if (column.distinctValues > 1 && column.distinctValues < 30) {
+            newData.dimensions.push(column);
+          }
+        } else {
+          if (column.expandedType === DatasetColumnExpandedType.GEO) {
+            if (column.distinctValues > 1 && column.distinctValues < 30) {
+              newData.dimensions.push(column);
+            }
+          } else {
+            newData.dimensions.push(column);
+          }
+        }
+      } else {
+        newData.measures.push(column);
+      }
+    }
+
+    newData.dimensions.sort((a, b) => {
+      if (a.type === DatasetColumnType.DATE) {
+        return -1;
+      }
+
+      if (b.type === DatasetColumnType.DATE) {
+        return 1;
+      }
+
+      return a.distinctValues - b.distinctValues;
+    });
+
+    for (const dimension of newData.dimensions) {
+      for (const measure of newData.measures) {
+        const type = dimension.expandedType === DatasetColumnExpandedType.GEO ? DatasetColumnExpandedType.NOMINAL : dimension.expandedType;
+
+        const encodings: any[] = [
+          {
+            channel: '?',
+            field: dimension.name,
+            type,
+            bin: type === DatasetColumnExpandedType.QUANTITATIVE,
+          },
+          {
+            channel: '?',
+            field: measure.name,
+            aggregate: 'sum',
+            type: measure.expandedType,
+            scale: {},
+          },
+        ];
+
+        if (dimension.type === DatasetColumnType.DATE) {
+          encodings[0].timeUnit = 'year';
+        }
+
+        newData.spec.push(encodings);
+      }
+    }
+
+    console.log(newData.spec);
+
+    const chartSpecs = [];
+
+    for (const spec of newData.spec) {
+      try {
+        const data: any = await this.getSpec(dataset.id, spec);
+
+        chartSpecs.push({
+          ...data.items[0],
+          key: spec[0].field,
+          value: spec[1].field,
+        });
+      } catch (error) {
+        console.log(error);
+        continue;
+      }
+    }
+
+    return chartSpecs;
+  }
 
   public async getSpec(datasetId: number, spec: any[]): Promise<any[]> {
     const dataset = await DatasetService.instance.getById(datasetId);
@@ -38,11 +130,39 @@ export default class DashboardService {
       },
     });
 
-    const q = `SELECT ${spec[0].field}, sum(${spec[1].field}) as "${spec[1].field}" FROM juno.${dataset.tableName} group by ${spec[0].field} order by ${spec[0].field} asc`;
+    const valueColumn = spec[1].field === 'count' ? `count(*)` : `sum(${spec[1].field})`;
 
-    const d = await clickhouse.query(q).toPromise();
+    const q = `SELECT ${spec[0].field}, ${valueColumn} as "${spec[1].field}" FROM juno.${dataset.tableName} group by ${spec[0].field} order by ${spec[0].field} asc`;
+
+    let d = await clickhouse.query(q).toPromise();
 
     console.log(d);
+
+    if (spec[0].bin) {
+      const minMax = await clickhouse.query(`SELECT min(${spec[0].field}) as "min", max(${spec[0].field}) as "max" FROM juno.${dataset.tableName}`).toPromise();
+
+      const newData = {};
+      const bin = datalib.bins({ min: minMax[0]['min'], max: minMax[0]['max'], maxbins: 10 });
+
+      for (let i = 0; i < d.length; i++) {
+        const dd = d[i];
+
+        const b = bin.value(dd[spec[0].field]);
+
+        if (!newData[b]) {
+          newData[b] = 0;
+        }
+
+        newData[b] += dd[spec[1].field];
+      }
+
+      console.log(newData);
+
+      d = Object.keys(newData).map((d) => ({
+        [spec[0].field]: d,
+        [spec[1].field]: newData[d],
+      }));
+    }
 
     const sch = schema.build(d);
 

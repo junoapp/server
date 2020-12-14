@@ -11,7 +11,7 @@ export default class DashboardController {
   }
 
   public async getSpec(request: Request, response: Response): Promise<void> {
-    const datasets = await dashboardService.getSpec(+request.params.datasetId, request.body);
+    const datasets = await dashboardService.getChartRecommendatioo(+request.params.datasetId);
 
     response.send(datasets);
   }

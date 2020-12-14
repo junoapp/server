@@ -14,7 +14,7 @@ export const dashboardRoutes: Router[] = [
   },
   {
     path: 'dashboard/:datasetId/spec',
-    method: 'post',
+    method: 'get',
     action: dashboardController.getSpec,
   },
 ];
