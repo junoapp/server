@@ -1,6 +1,7 @@
-import { Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { BasicColumnsInterface } from '@junoapp/common';
 
-export abstract class BasicColumns {
+export abstract class BasicColumns implements BasicColumnsInterface {
   @CreateDateColumn()
   createdDate: Date;
 

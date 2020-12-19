@@ -1,9 +1,11 @@
 import { Column, Entity, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { DatasetInterface } from '@junoapp/common';
+
 import { BasicColumns } from '../utils/basic-columns';
 import { DatasetColumn } from './DatasetColumn';
 
 @Entity()
-export class Dataset extends BasicColumns {
+export class Dataset extends BasicColumns implements DatasetInterface {
   @PrimaryGeneratedColumn()
   id: number;
 

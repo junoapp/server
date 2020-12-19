@@ -1,10 +1,11 @@
 import { Column, Entity, PrimaryGeneratedColumn, ManyToOne } from 'typeorm';
+import { DatasetColumnInterface, DatasetColumnRole, DatasetColumnType, DatasetColumnExpandedType } from '@junoapp/common';
 
 import { BasicColumns } from '../utils/basic-columns';
 import { Dataset } from './Dataset';
 
 @Entity()
-export class DatasetColumn extends BasicColumns {
+export class DatasetColumn extends BasicColumns implements DatasetColumnInterface {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -46,26 +47,4 @@ export class DatasetColumn extends BasicColumns {
 
   @ManyToOne((type) => Dataset, (dataset) => dataset.columns)
   dataset: Dataset;
-}
-
-export enum DatasetColumnRole {
-  DIMENSION = 'dimension',
-  MEASURE = 'measure',
-}
-
-export enum DatasetColumnType {
-  STRING = 'string',
-  NUMBER = 'number',
-  INTEGER = 'integer',
-  BOOLEAN = 'boolean',
-  DATE = 'date',
-}
-
-export enum DatasetColumnExpandedType {
-  QUANTITATIVE = 'quantitative',
-  ORDINAL = 'ordinal',
-  TEMPORAL = 'temporal',
-  NOMINAL = 'nominal',
-  GEO = 'geo',
-  KEY = 'key',
 }

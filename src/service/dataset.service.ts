@@ -154,8 +154,6 @@ export default class DatasetService {
               }
             }
 
-            console.log(moneyFields);
-
             const dates: number[][] = [[], [], []];
             const times: string[] = [];
 
@@ -193,6 +191,10 @@ export default class DatasetService {
                 } else {
                   continue;
                 }
+
+                // part1 = part1.replace(/\D/g, '');
+                // part2 = part2.replace(/\D/g, '');
+                // part3 = part3.replace(/\D/g, '');
 
                 if (isNaN(+part1) || isNaN(+part2) || isNaN(+part3)) {
                   continue;
@@ -276,7 +278,6 @@ export default class DatasetService {
                   nullable: keys[0].count < checkRows.length,
                   name: key,
                   type: 'DateTime',
-                  distinctValues: keys[0].distinct,
                 });
 
                 if (!primaryKeyDate && keys[0].count === checkRows.length) {
@@ -287,7 +288,6 @@ export default class DatasetService {
                   nullable: keys[0].count < checkRows.length,
                   name: key,
                   type: keys[0].type,
-                  distinctValues: keys[0].distinct,
                 });
 
                 if (keys[0].count === checkRows.length && keys[0].distinct < primaryKeyCount) {
@@ -299,7 +299,6 @@ export default class DatasetService {
                   nullable: true,
                   name: key,
                   type: 'string',
-                  distinctValues: keys[0].distinct,
                 });
               }
             }
@@ -311,12 +310,16 @@ export default class DatasetService {
               const month = dates.findIndex((date) => date.every((d) => (d.toString().length === 1 || d.toString().length === 2) && d >= 0 && d <= 12));
               const day = [0, 1, 2].find((d) => d !== year && d !== month);
 
+              console.log(year, month, day);
+
               const year4Digits = dates[year].every((d) => d.toString().length === 4);
+              const month2Digits = dates[month].every((d) => d.toString().length === 2);
+              const day2Digits = dates[day].every((d) => d.toString().length === 2);
 
               const dateFormat = [
                 { order: year, format: year4Digits ? 'yyyy' : 'yy' },
-                { order: month, format: 'MM' },
-                { order: day, format: 'dd' },
+                { order: month, format: month2Digits ? 'MM' : 'M' },
+                { order: day, format: day2Digits ? 'dd' : 'd' },
               ];
 
               let dateFormatString = `${dateFormat
@@ -386,7 +389,6 @@ export default class DatasetService {
                 type,
                 typeName: typeObj.type === 'DateTime' ? 'date' : typeObj.type,
                 column: `${name} ${type}`,
-                distinctValues: typeObj.distinctValues,
               });
             });
 

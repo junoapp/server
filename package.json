@@ -15,6 +15,7 @@
     "typescript": "3.3.3333"
   },
   "dependencies": {
+    "@junoapp/common": "file:.yalc/@junoapp/common",
     "body-parser": "^1.19.0",
     "clickhouse": "^2.1.5",
     "compassql": "^0.21.2",
