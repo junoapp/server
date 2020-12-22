@@ -6,10 +6,11 @@ import got from 'got';
 import { parse, unparse } from 'papaparse';
 import { format, parse as dateParse } from 'date-fns';
 import * as firstline from 'firstline';
+import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '@junoapp/common';
 
 import { Dataset } from '../entity/Dataset';
 import { UploadResponse } from '../dto/upload-response';
-import { DatasetColumn, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '../entity/DatasetColumn';
+import { DatasetColumn } from '../entity/DatasetColumn';
 import { DatasetColumnRequest } from '../dto/dataset-column-request';
 import logger from '../utils/logger';
 import { stringify } from 'querystring';

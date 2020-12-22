@@ -1,8 +1,9 @@
 import { ClickHouse } from 'clickhouse';
 import { recommend, schema, result } from 'compassql';
 import * as datalib from 'datalib';
+import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '@junoapp/common';
 
-import { DatasetColumn, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '../entity/DatasetColumn';
+import { DatasetColumn } from '../entity/DatasetColumn';
 
 import DatasetService from './dataset.service';
 
