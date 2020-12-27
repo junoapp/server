@@ -1,4 +1,3 @@
-import { ClickHouse } from 'clickhouse';
 import { recommend, schema, result } from 'compassql';
 import * as datalib from 'datalib';
 import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '@junoapp/common';
@@ -6,9 +5,12 @@ import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from 
 import { DatasetColumn } from '../entity/DatasetColumn';
 
 import DatasetService from './dataset.service';
+import ClickHouseService from './clickhouse.service';
 
 export default class DashboardService {
   private static singletonInstance: DashboardService;
+
+  private clickHouseService: ClickHouseService = ClickHouseService.instance;
 
   static get instance(): DashboardService {
     return this.singletonInstance || (this.singletonInstance = new this());
@@ -85,8 +87,6 @@ export default class DashboardService {
       }
     }
 
-    console.log(newData.spec);
-
     const chartSpecs = [];
 
     for (const spec of newData.spec) {
@@ -110,37 +110,14 @@ export default class DashboardService {
   public async getSpec(datasetId: number, spec: any[]): Promise<any[]> {
     const dataset = await DatasetService.instance.getById(datasetId);
 
-    // const column = dataset.columns.find((col) => col.name === name);
-
-    const clickhouse = new ClickHouse({
-      url: 'http://localhost',
-      port: 8123,
-      basicAuth: {
-        username: 'default',
-        password: '',
-      },
-      isUseGzip: true,
-      format: 'csv',
-      config: {
-        session_id: 'session_id if neeed',
-        session_timeout: 60,
-        output_format_json_quote_64bit_integers: 0,
-        enable_http_compression: 0,
-        database: 'juno',
-        max_partitions_per_insert_block: 1000,
-      },
-    });
-
     const valueColumn = spec[1].field === 'count' ? `count(*)` : `sum(${spec[1].field})`;
 
     const q = `SELECT ${spec[0].field}, ${valueColumn} as "${spec[1].field}" FROM juno.${dataset.tableName} group by ${spec[0].field} order by ${spec[0].field} asc`;
 
-    let d = await clickhouse.query(q).toPromise();
-
-    console.log(d);
+    let d = await this.clickHouseService.query(q);
 
     if (spec[0].bin) {
-      const minMax = await clickhouse.query(`SELECT min(${spec[0].field}) as "min", max(${spec[0].field}) as "max" FROM juno.${dataset.tableName}`).toPromise();
+      const minMax = await this.clickHouseService.query(`SELECT min(${spec[0].field}) as "min", max(${spec[0].field}) as "max" FROM juno.${dataset.tableName}`);
 
       const newData = {};
       const bin = datalib.bins({ min: minMax[0]['min'], max: minMax[0]['max'], maxbins: 10 });
@@ -156,8 +133,6 @@ export default class DashboardService {
 
         newData[b] += dd[spec[1].field];
       }
-
-      console.log(newData);
 
       d = Object.keys(newData).map((d) => ({
         [spec[0].field]: d,
@@ -185,8 +160,6 @@ export default class DashboardService {
       return item.toSpec();
     });
 
-    console.log(vlTree.items);
-
     return vlTree.items[0];
   }
 
@@ -195,32 +168,13 @@ export default class DashboardService {
 
     const column = dataset.columns.find((col) => col.name === name);
 
-    const clickhouse = new ClickHouse({
-      url: 'http://localhost',
-      port: 8123,
-      basicAuth: {
-        username: 'default',
-        password: '',
-      },
-      isUseGzip: true,
-      format: 'csv',
-      config: {
-        session_id: 'session_id if neeed',
-        session_timeout: 60,
-        output_format_json_quote_64bit_integers: 0,
-        enable_http_compression: 0,
-        database: 'juno',
-        max_partitions_per_insert_block: 1000,
-      },
-    });
-
     const valueName = value === 'count(*)' ? 'count' : value;
 
     const q = value
       ? `SELECT ${name}, ${value} as "${valueName}" FROM juno.${dataset.tableName} ${value === 'count(*)' ? `GROUP BY ${name}` : ''} LIMIT 1000`
       : `SELECT ${name} FROM juno.${dataset.tableName} LIMIT 1000`;
 
-    const d = await clickhouse.query(q).toPromise();
+    const d = await this.clickHouseService.query(q);
 
     const sch = schema.build(d);
 
@@ -246,8 +200,6 @@ export default class DashboardService {
       });
     }
 
-    console.log(encodings);
-
     const rs = recommend(
       {
         spec: {
@@ -266,16 +218,13 @@ export default class DashboardService {
       return item.toSpec();
     });
 
-    console.log(vlTree.items);
-
     return vlTree.items[0];
 
     if (column.type === DatasetColumnType.DATE) {
       type DateInfo = { min: Date; max: Date; year: number; quarter: number; month: number; week: number; day: number };
 
-      const dataInfo: Array<Object> = await clickhouse
-        .query(
-          `
+      const dataInfo: Array<Object> = await this.clickHouseService.query(
+        `
           SELECT 
             min(${column.name}) AS "min", 
             max(${column.name}) AS "max", 
@@ -286,8 +235,7 @@ export default class DashboardService {
             datediff('day', min(${column.name}), max(${column.name})) AS "day"
           FROM juno.${dataset.tableName}
           `
-        )
-        .toPromise();
+      );
 
       let format = '%Y';
       if (dataInfo[0]['year'] >= 5) {
@@ -306,9 +254,9 @@ export default class DashboardService {
 
       console.log(query);
 
-      return clickhouse.query(query).toPromise();
+      return this.clickHouseService.query(query);
     } else if (column.type === DatasetColumnType.NUMBER) {
-      // const dataInfo: Array<Object> = await clickhouse
+      // const dataInfo: Array<Object> = await this.clickHouseService
       //   .query(
       //     `
       //     SELECT
@@ -349,6 +297,6 @@ export default class DashboardService {
 
     console.log(query);
 
-    return clickhouse.query(query).toPromise();
+    return this.clickHouseService.query(query);
   }
 }

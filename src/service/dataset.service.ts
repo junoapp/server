@@ -1,24 +1,23 @@
 import { getManager, EntityManager } from 'typeorm';
 import * as fs from 'fs';
 import * as datalib from 'datalib';
-import { ClickHouse } from 'clickhouse';
 import got from 'got';
 import { parse, unparse } from 'papaparse';
 import { format, parse as dateParse } from 'date-fns';
-import * as firstline from 'firstline';
 import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '@junoapp/common';
 
 import { Dataset } from '../entity/Dataset';
-import { UploadResponse } from '../dto/upload-response';
 import { DatasetColumn } from '../entity/DatasetColumn';
 import { DatasetColumnRequest } from '../dto/dataset-column-request';
 import logger from '../utils/logger';
-import { stringify } from 'querystring';
 import { convertName, getFilename } from '../utils/functions';
-import { convert, SET_DATE_METHOD, SingleTimeUnit, TimeUnit, TIMEUNIT_PARTS, UtcTimeUnit, UTC_TIMEUNIT_INDEX } from '../utils/timeunit';
+import { convert, TimeUnit } from '../utils/timeunit';
+import ClickHouseService from './clickhouse.service';
 
 export default class DatasetService {
   private static singletonInstance: DatasetService;
+
+  private clickHouseService: ClickHouseService = ClickHouseService.instance;
 
   static get instance(): DatasetService {
     return this.singletonInstance || (this.singletonInstance = new this());
@@ -74,19 +73,14 @@ export default class DatasetService {
   public async updateColumns(datasetId: number, columns: DatasetColumnRequest[]): Promise<void> {
     await this.entityManager
       .transaction(async (entityManager) => {
-        // const dataset = await entityManager.findOne(Dataset, datasetId);
-        // await entityManager.delete(DatasetColumn, { dataset: dataset.id });
-
         const ids = columns.map((c) => c.id);
-        console.log(ids);
+
         await entityManager.createQueryBuilder().delete().from(DatasetColumn).where('id not in (:...ids)', { ids }).andWhere('dataset_id = :dataset', { dataset: datasetId }).execute();
 
         for (const columnRequest of columns) {
           const column = await entityManager.findOne(DatasetColumn, columnRequest.id);
 
-          // column.name = columnRequest.name;
           column.role = columnRequest.role;
-          // column.dataset = dataset;
           column.index = columnRequest.index;
 
           await entityManager.save(DatasetColumn, column);
@@ -192,10 +186,6 @@ export default class DatasetService {
                 } else {
                   continue;
                 }
-
-                // part1 = part1.replace(/\D/g, '');
-                // part2 = part2.replace(/\D/g, '');
-                // part3 = part3.replace(/\D/g, '');
 
                 if (isNaN(+part1) || isNaN(+part2) || isNaN(+part3)) {
                   continue;
@@ -311,8 +301,6 @@ export default class DatasetService {
               const month = dates.findIndex((date) => date.every((d) => (d.toString().length === 1 || d.toString().length === 2) && d >= 0 && d <= 12));
               const day = [0, 1, 2].find((d) => d !== year && d !== month);
 
-              console.log(year, month, day);
-
               const year4Digits = dates[year].every((d) => d.toString().length === 4);
               const month2Digits = dates[month].every((d) => d.toString().length === 2);
               const day2Digits = dates[day].every((d) => d.toString().length === 2);
@@ -350,10 +338,6 @@ export default class DatasetService {
                     item[moneyField] = Number(item[moneyField].replace(/[^0-9.-]+/g, ''));
                   }
                 }
-
-                // if (moneyFields.includes(key) && curr[key] && curr[key].replace) {
-                //   curr[key] = Number(curr[key].replace(/[^0-9.-]+/g, ''));
-                // }
 
                 newData.push(item);
               }
@@ -393,44 +377,21 @@ export default class DatasetService {
               });
             });
 
-            console.log(columnArray);
-
             const columns = columnArray.map((c) => c.column).join(',');
-            const clickhouse = new ClickHouse({
-              url: 'http://localhost',
-              port: 8123,
-              basicAuth: {
-                username: 'default',
-                password: '',
-              },
-              isUseGzip: true,
-              format: 'csv',
-              config: {
-                session_id: 'session_id if neeed',
-                session_timeout: 60,
-                output_format_json_quote_64bit_integers: 0,
-                enable_http_compression: 0,
-                database: 'juno',
-                max_partitions_per_insert_block: 1000,
-              },
-            });
 
             const name = convertName(dataset.originalname);
 
-            await clickhouse.query(`DROP TABLE IF EXISTS ${name}`).toPromise();
+            await this.clickHouseService.query(`DROP TABLE IF EXISTS ${name}`);
 
-            // const partition = primaryKeyDate ? `toYYYYMM(${primaryKeyDate})` : primaryKey;
             const orderBy = primaryKeyDate || primaryKey;
 
-            await clickhouse
-              .query(
-                `CREATE TABLE ${name} (
+            await this.clickHouseService.query(
+              `CREATE TABLE ${name} (
                 ${columns}
               )
               ENGINE = MergeTree()
               ORDER BY ${orderBy}`
-              )
-              .toPromise();
+            );
 
             const newFileData = fs.createReadStream(dataset.path);
             await got(`http://localhost:8123/?query=INSERT INTO juno.${name} FORMAT CSVWithNames`, {
@@ -438,7 +399,7 @@ export default class DatasetService {
               body: newFileData,
             });
 
-            columnArray = await this.getExpandedType(clickhouse, name, columnArray);
+            columnArray = await this.getExpandedType(name, columnArray);
 
             columnArray.push({
               name: 'count',
@@ -454,9 +415,9 @@ export default class DatasetService {
                 role = DatasetColumnRole.MEASURE;
               }
 
-              const distinctValues = await clickhouse
-                .query(column.isCount ? `SELECT COUNT(*) AS "value" FROM juno.${name}` : `SELECT COUNT(DISTINCT ${column.name}) AS "value" FROM juno.${name}`)
-                .toPromise();
+              const distinctValues = await this.clickHouseService.query(
+                column.isCount ? `SELECT COUNT(*) AS "value" FROM juno.${name}` : `SELECT COUNT(DISTINCT ${column.name}) AS "value" FROM juno.${name}`
+              );
 
               const newColumn = new DatasetColumn();
               newColumn.name = column.name;
@@ -484,8 +445,8 @@ export default class DatasetService {
     });
   }
 
-  private async getExpandedType(clickhouse, name: string, columnArray: any[]) {
-    const data = await clickhouse.query(`select * from juno.${name}`).toPromise();
+  private async getExpandedType(name: string, columnArray: any[]) {
+    const data = await this.clickHouseService.query(`select * from juno.${name}`);
 
     let summaries = datalib.summary(data);
     let types = datalib.type.inferAll(data);
@@ -520,8 +481,6 @@ export default class DatasetService {
       if (!column) {
         return null;
       }
-
-      console.log(column.name, column.typeName, types[name]);
 
       // In Table schema, 'date' doesn't include time so use 'datetime'
       const type: DatasetColumnType = column.typeName === 'date' ? DatasetColumnType.DATE : (column.typeName as any);
@@ -605,7 +564,6 @@ export default class DatasetService {
 
       let fieldSchema = {
         name,
-        // Need to keep original index for re-exporting TableSchema
         originalIndex: index,
         expandedType,
         type,
@@ -615,10 +573,6 @@ export default class DatasetService {
       };
 
       columnArray[columnIndex].expandedType = expandedType;
-
-      // extend field schema with table schema field - if present
-      // const orgFieldSchema = tableSchemaFieldIndex[fieldSchema.name];
-      // fieldSchema = extend(fieldSchema, orgFieldSchema);
 
       return fieldSchema;
     });
