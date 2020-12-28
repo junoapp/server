@@ -8,11 +8,6 @@ const dashboardController = new DashboardController();
 
 export const dashboardRoutes: Router[] = [
   {
-    path: 'dashboard/:datasetId/column/:name/:value?',
-    method: 'get',
-    action: dashboardController.getAll,
-  },
-  {
     path: 'dashboard/:datasetId/spec',
     method: 'get',
     action: dashboardController.getSpec,

@@ -1,4 +1,4 @@
-import { recommend, schema, result } from 'compassql';
+import { recommend, schema, result, SpecQuery } from 'compassql';
 import * as datalib from 'datalib';
 import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '@junoapp/common';
 
@@ -6,6 +6,28 @@ import { DatasetColumn } from '../entity/DatasetColumn';
 
 import DatasetService from './dataset.service';
 import ClickHouseService from './clickhouse.service';
+import { Dataset } from '../entity/Dataset';
+
+interface DatasetSpecEncoding {
+  channel: string;
+  field: string;
+  type: string;
+  aggregate?: string;
+  bin?: boolean;
+  scale?: any;
+  column: DatasetColumn;
+  timeUnit?: string;
+  trimValues?: boolean;
+}
+
+type DatasetSpecEncodings = [DatasetSpecEncoding, DatasetSpecEncoding];
+
+type DatasetRecommendation = SpecQuery & {
+  key: string;
+  value: string;
+  dimension: DatasetSpecEncoding;
+  measure: DatasetSpecEncoding;
+};
 
 export default class DashboardService {
   private static singletonInstance: DashboardService;
@@ -18,10 +40,10 @@ export default class DashboardService {
 
   private constructor() {}
 
-  public async getChartRecommendatioo(datasetId: number): Promise<any[]> {
+  public async getChartRecommendation(datasetId: number): Promise<any[]> {
     const dataset = await DatasetService.instance.getById(datasetId);
 
-    const newData: { dimensions: DatasetColumn[]; measures: DatasetColumn[]; spec: any[] } = {
+    const newData: { dimensions: DatasetColumn[]; measures: DatasetColumn[]; spec: DatasetSpecEncodings[] } = {
       dimensions: [],
       measures: [],
       spec: [],
@@ -29,8 +51,8 @@ export default class DashboardService {
 
     for (const column of dataset.columns) {
       if (column.role === DatasetColumnRole.DIMENSION) {
-        if (column.type === DatasetColumnType.STRING) {
-          if (column.distinctValues > 1 && column.distinctValues < 30) {
+        if (column.type === DatasetColumnType.STRING && column.expandedType !== DatasetColumnExpandedType.GEO) {
+          if (column.distinctValues > 1 && column.distinctValues < 500) {
             newData.dimensions.push(column);
           }
         } else {
@@ -63,12 +85,14 @@ export default class DashboardService {
       for (const measure of newData.measures) {
         const type = dimension.expandedType === DatasetColumnExpandedType.GEO ? DatasetColumnExpandedType.NOMINAL : dimension.expandedType;
 
-        const encodings: any[] = [
+        const encodings: DatasetSpecEncodings = [
           {
             channel: '?',
             field: dimension.name,
             type,
             bin: type === DatasetColumnExpandedType.QUANTITATIVE,
+            column: dimension,
+            trimValues: dimension.distinctValues > 30,
           },
           {
             channel: '?',
@@ -76,6 +100,7 @@ export default class DashboardService {
             aggregate: 'sum',
             type: measure.expandedType,
             scale: {},
+            column: measure,
           },
         ];
 
@@ -87,16 +112,18 @@ export default class DashboardService {
       }
     }
 
-    const chartSpecs = [];
+    const chartSpecs: DatasetRecommendation[] = [];
 
     for (const spec of newData.spec) {
       try {
-        const data: any = await this.getSpec(dataset.id, spec);
+        const data: SpecQuery = await this.getSpec(dataset, spec);
 
         chartSpecs.push({
-          ...data.items[0],
+          ...data,
           key: spec[0].field,
           value: spec[1].field,
+          dimension: newData.spec[0],
+          measure: newData.spec[1],
         });
       } catch (error) {
         console.log(error);
@@ -107,45 +134,19 @@ export default class DashboardService {
     return chartSpecs;
   }
 
-  public async getSpec(datasetId: number, spec: any[]): Promise<any[]> {
-    const dataset = await DatasetService.instance.getById(datasetId);
-
-    const valueColumn = spec[1].field === 'count' ? `count(*)` : `sum(${spec[1].field})`;
-
-    const q = `SELECT ${spec[0].field}, ${valueColumn} as "${spec[1].field}" FROM juno.${dataset.tableName} group by ${spec[0].field} order by ${spec[0].field} asc`;
-
-    let d = await this.clickHouseService.query(q);
+  public async getSpec(dataset: Dataset, spec: DatasetSpecEncodings): Promise<SpecQuery> {
+    let queryResult = await this.getDataFromClickHouse(dataset, spec);
 
     if (spec[0].bin) {
-      const minMax = await this.clickHouseService.query(`SELECT min(${spec[0].field}) as "min", max(${spec[0].field}) as "max" FROM juno.${dataset.tableName}`);
-
-      const newData = {};
-      const bin = datalib.bins({ min: minMax[0]['min'], max: minMax[0]['max'], maxbins: 10 });
-
-      for (let i = 0; i < d.length; i++) {
-        const dd = d[i];
-
-        const b = bin.value(dd[spec[0].field]);
-
-        if (!newData[b]) {
-          newData[b] = 0;
-        }
-
-        newData[b] += dd[spec[1].field];
-      }
-
-      d = Object.keys(newData).map((d) => ({
-        [spec[0].field]: d,
-        [spec[1].field]: newData[d],
-      }));
+      queryResult = await this.binValues(spec, dataset, queryResult);
     }
 
-    const sch = schema.build(d);
+    const compassSchema = schema.build(queryResult);
 
-    const rs = recommend(
+    const recommendations = recommend(
       {
         spec: {
-          data: { values: d },
+          data: { values: queryResult },
           mark: '?',
           encodings: spec,
         },
@@ -153,81 +154,49 @@ export default class DashboardService {
         chooseBy: ['aggregationQuality', 'effectiveness'],
         groupBy: 'encoding',
       },
-      sch
+      compassSchema
     );
 
-    var vlTree = result.mapLeaves(rs.result, function (item) {
-      return item.toSpec();
-    });
+    const recommendationSpecs = result.mapLeaves(recommendations.result, (item) => item.toSpec());
+    const recommendationSpec: SpecQuery = recommendationSpecs.items[0].items[0];
 
-    return vlTree.items[0];
+    return recommendationSpec;
   }
 
-  public async getAll(datasetId: number, name: string, value?: string): Promise<any[]> {
-    const dataset = await DatasetService.instance.getById(datasetId);
+  private async binValues(spec: DatasetSpecEncodings, dataset: Dataset, queryResult: Object[]) {
+    const minMax = await this.clickHouseService.query(`SELECT min(${spec[0].field}) as "min", max(${spec[0].field}) as "max" FROM juno.${dataset.tableName}`);
 
-    const column = dataset.columns.find((col) => col.name === name);
+    const newData = {};
+    const bins = datalib.bins({ min: minMax[0]['min'], max: minMax[0]['max'], maxbins: 10 });
 
-    const valueName = value === 'count(*)' ? 'count' : value;
+    for (const queryItem of queryResult) {
+      const binIndex = bins.value(queryItem[spec[0].field]);
 
-    const q = value
-      ? `SELECT ${name}, ${value} as "${valueName}" FROM juno.${dataset.tableName} ${value === 'count(*)' ? `GROUP BY ${name}` : ''} LIMIT 1000`
-      : `SELECT ${name} FROM juno.${dataset.tableName} LIMIT 1000`;
+      if (!newData[binIndex]) {
+        newData[binIndex] = 0;
+      }
 
-    const d = await this.clickHouseService.query(q);
-
-    const sch = schema.build(d);
-
-    const encodings: any[] = [
-      {
-        channel: '?',
-        aggregate: '?',
-        timeUnit: '?',
-        field: name,
-        type: column.expandedType,
-      },
-    ];
-
-    if (value) {
-      const columnValue = dataset.columns.find((col) => col.name === value);
-
-      encodings.push({
-        channel: '?',
-        aggregate: valueName === 'count' ? 'count' : '?',
-        timeUnit: '?',
-        field: valueName === 'count' ? '*' : valueName,
-        type: columnValue ? columnValue.expandedType : 'quantitative',
-      });
+      newData[binIndex] += queryItem[spec[1].field];
     }
 
-    const rs = recommend(
-      {
-        spec: {
-          data: { values: d },
-          mark: '?',
-          encodings,
-        },
-        orderBy: ['aggregationQuality', 'effectiveness'],
-        chooseBy: ['aggregationQuality', 'effectiveness'],
-        groupBy: 'encoding',
-      },
-      sch
-    );
+    return Object.keys(newData).map((d) => ({
+      [spec[0].field]: d,
+      [spec[1].field]: newData[d],
+    }));
+  }
 
-    var vlTree = result.mapLeaves(rs.result, function (item) {
-      return item.toSpec();
-    });
+  private async getDataFromClickHouse(dataset: Dataset, [dimension, measure]: DatasetSpecEncodings) {
+    const column = dimension.column;
+    const valueColumnName = measure.field === 'count' ? `count(*)` : `sum(${measure.field})`;
 
-    return vlTree.items[0];
+    let query: string;
 
     if (column.type === DatasetColumnType.DATE) {
-      type DateInfo = { min: Date; max: Date; year: number; quarter: number; month: number; week: number; day: number };
-
-      const dataInfo: Array<Object> = await this.clickHouseService.query(
+      const dataInfo: Object[] = await this.clickHouseService.query(
         `
-          SELECT 
-            min(${column.name}) AS "min", 
-            max(${column.name}) AS "max", 
+          SELECT
+            min(${column.name}) AS "min",
+            max(${column.name}) AS "max",
             datediff('year', min(${column.name}), max(${column.name})) AS "year",
             datediff('quarter', min(${column.name}), max(${column.name})) AS "quarter",
             datediff('month', min(${column.name}), max(${column.name})) AS "month",
@@ -250,50 +219,14 @@ export default class DashboardService {
 
       const columnName = `formatDateTime(${column.name}, '${format}')`;
 
-      const query = `SELECT ${columnName} as "name", ${value} as "value" FROM juno.${dataset.tableName} GROUP BY ${columnName} ORDER BY ${columnName} ASC`;
-
-      console.log(query);
-
-      return this.clickHouseService.query(query);
-    } else if (column.type === DatasetColumnType.NUMBER) {
-      // const dataInfo: Array<Object> = await this.clickHouseService
-      //   .query(
-      //     `
-      //     SELECT
-      //       min(${column.name}) AS "min",
-      //       max(${column.name}) AS "max"
-      //     FROM juno.${dataset.tableName}
-      //   `
-      //   )
-      //   .toPromise();
-      // let min = dataInfo[0]['min'];
-      // const offset = (dataInfo[0]['max'] - min) / 10;
-      // if (offset > 1) {
-      //   const conditionals = [];
-      //   for (let i = 0; i < 9; i++) {
-      //     conditionals.push(`${column.name} < ${min + offset}, '${min}-${min + offset}'`);
-      //     min += offset;
-      //   }
-      //   console.log(conditionals);
-      //   return clickhouse
-      //     .query(
-      //       `
-      //       SELECT
-      //         multiIf (
-      //           ${conditionals.join(',')},
-      //           'Others'
-      //         ) AS name,
-      //         count(*) as "value"
-      //       FROM juno.${dataset.tableName}
-      //       GROUP BY name
-      //       ORDER BY name
-      //       `
-      //     )
-      //     .toPromise();
-      // }
+      query = `SELECT ${columnName} AS "${dimension.field}", ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
+    } else {
+      if (dimension.trimValues) {
+        query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${measure.field} ASC LIMIT 30`;
+      } else {
+        query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
+      }
     }
-
-    const query = `SELECT ${column.name} as "name", ${value} as "value" FROM juno.${dataset.tableName} GROUP BY ${column.name} ORDER BY ${column.name} ASC`;
 
     console.log(query);
 

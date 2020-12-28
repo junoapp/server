@@ -1,6 +1,11 @@
 import { ClickHouse } from 'clickhouse';
+import got from 'got';
+import { ReadStream } from 'fs';
 
 export default class ClickHouseService {
+  private static readonly CLICK_HOUSE_URL = 'http://localhost';
+  private static readonly CLICK_HOUSE_PORT = 8123;
+
   private clickhouse: ClickHouse;
   private static singletonInstance: ClickHouseService;
 
@@ -16,10 +21,17 @@ export default class ClickHouseService {
     return this.clickhouse.query(query).toPromise();
   }
 
+  public post(query: string, data: ReadStream) {
+    return got(`${ClickHouseService.CLICK_HOUSE_URL}:${ClickHouseService.CLICK_HOUSE_PORT}/?query=${query}`, {
+      method: 'POST',
+      body: data,
+    });
+  }
+
   private connection(): void {
     this.clickhouse = new ClickHouse({
-      url: 'http://localhost',
-      port: 8123,
+      url: ClickHouseService.CLICK_HOUSE_URL,
+      port: ClickHouseService.CLICK_HOUSE_PORT,
       basicAuth: {
         username: 'default',
         password: '',

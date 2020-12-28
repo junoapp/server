@@ -1,7 +1,6 @@
 import { getManager, EntityManager } from 'typeorm';
 import * as fs from 'fs';
 import * as datalib from 'datalib';
-import got from 'got';
 import { parse, unparse } from 'papaparse';
 import { format, parse as dateParse } from 'date-fns';
 import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '@junoapp/common';
@@ -394,10 +393,7 @@ export default class DatasetService {
             );
 
             const newFileData = fs.createReadStream(dataset.path);
-            await got(`http://localhost:8123/?query=INSERT INTO juno.${name} FORMAT CSVWithNames`, {
-              method: 'POST',
-              body: newFileData,
-            });
+            await this.clickHouseService.post(`INSERT INTO juno.${name} FORMAT CSVWithNames`, newFileData);
 
             columnArray = await this.getExpandedType(name, columnArray);
 
@@ -449,7 +445,6 @@ export default class DatasetService {
     const data = await this.clickHouseService.query(`select * from juno.${name}`);
 
     let summaries = datalib.summary(data);
-    let types = datalib.type.inferAll(data);
 
     const opt = {
       numberNominalLimit: 40,

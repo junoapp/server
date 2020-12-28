@@ -10,5 +10,14 @@
     "experimentalDecorators": true,
     "sourceMap": true
   },
-  "include": ["test/**/*.ts", "typings/*.d.ts", "typings/**/*.d.ts", "src/**/*.ts"]
+  "include": [
+    "./node_modules/compassql/typings/*.d.ts",
+    "./node_modules/vega-lite/typings/*.d.ts",
+    "./node_modules/@types/**/*.d.ts",
+    "test/**/*.ts",
+    "typings/*.d.ts",
+    "typings/**/*.d.ts",
+    "src/**/*.ts"
+  ],
+  "exclude": ["./node_modules/compassql/typings/json.d.ts", "./node_modules/vega-lite/typings/json.d.ts", "./node_modules/vega-lite/typings/vega.d.ts"]
 }
