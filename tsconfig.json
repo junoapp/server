@@ -1,14 +1,22 @@
 {
   "compilerOptions": {
-    "lib": ["es5", "es6"],
     "target": "es5",
-    "module": "commonjs",
+    "module": "CommonJS",
     "moduleResolution": "node",
     "outDir": "./build",
     "rootDir": "./src",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "sourceMap": true
+    "suppressImplicitAnyIndexErrors": true,
+    "declaration": true,
+    "noErrorTruncation": true,
+    "sourceMap": true,
+    "esModuleInterop": false,
+    "skipLibCheck": true,
+    "importHelpers": true,
+    "strict": false,
+    "allowJs": true,
+    "allowSyntheticDefaultImports": true
   },
   "include": [
     "./node_modules/compassql/typings/*.d.ts",

@@ -15,7 +15,8 @@
     "husky": "^4.3.6",
     "nodemon": "^2.0.4",
     "ts-node": "3.3.0",
-    "typescript": "^4.1.3"
+    "typescript": "^4.1.3",
+    "yalc": "^1.0.0-pre.49"
   },
   "dependencies": {
     "@junoapp/common": "file:.yalc/@junoapp/common",
@@ -38,7 +39,8 @@
     "winston": "^3.3.3"
   },
   "scripts": {
-    "start": "nodemon --max-old-space-size=8000 --watch 'src/**/*.ts' --ignore 'src/**/*.spec.ts' --exec 'ts-node' src/index.ts"
+    "start": "nodemon --max-old-space-size=8000 --watch 'src/**/*.ts' --ignore 'src/**/*.spec.ts' --exec 'ts-node' src/index.ts",
+    "yalc:update": "yalc update"
   },
   "husky": {
     "hooks": {

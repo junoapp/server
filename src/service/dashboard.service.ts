@@ -1,33 +1,20 @@
-import { recommend, schema, result, SpecQuery } from 'compassql';
+// import { build } from 'compassql/build/src/schema';
+// import { recommend } from 'compassql/build/src/recommend';
+// import { mapLeaves } from 'compassql/build/src/result';
+// import { SpecQuery } from 'compassql/build/src/query/spec';
+// import { EncodingQuery, FieldQuery } from 'compassql/build/src/query/encoding';
+
+import { schema, recommend, result, SpecQuery, EncodingQuery, FieldQuery } from 'compassql';
+
 import * as datalib from 'datalib';
-import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '@junoapp/common';
+import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType, DatasetRecommendation, DatasetSpecEncodings } from '@junoapp/common';
 
 import { DatasetColumn } from '../entity/DatasetColumn';
 
 import DatasetService from './dataset.service';
 import ClickHouseService from './clickhouse.service';
 import { Dataset } from '../entity/Dataset';
-
-interface DatasetSpecEncoding {
-  channel: string;
-  field: string;
-  type: string;
-  aggregate?: string;
-  bin?: boolean;
-  scale?: any;
-  column: DatasetColumn;
-  timeUnit?: string;
-  trimValues?: boolean;
-}
-
-type DatasetSpecEncodings = [DatasetSpecEncoding, DatasetSpecEncoding];
-
-type DatasetRecommendation = SpecQuery & {
-  key: string;
-  value: string;
-  dimension: DatasetSpecEncoding;
-  measure: DatasetSpecEncoding;
-};
+import { ExpandedType } from 'compassql/build/src/query/expandedtype';
 
 export default class DashboardService {
   private static singletonInstance: DashboardService;
@@ -40,7 +27,7 @@ export default class DashboardService {
 
   private constructor() {}
 
-  public async getChartRecommendation(datasetId: number): Promise<any[]> {
+  public async getChartRecommendation(datasetId: number): Promise<DatasetRecommendation[]> {
     const dataset = await DatasetService.instance.getById(datasetId);
 
     const newData: { dimensions: DatasetColumn[]; measures: DatasetColumn[]; spec: DatasetSpecEncodings[] } = {
@@ -87,6 +74,7 @@ export default class DashboardService {
 
         const encodings: DatasetSpecEncodings = [
           {
+            // timeUnit: dimension.type === DatasetColumnType.DATE ? 'year' : null,
             channel: '?',
             field: dimension.name,
             type,
@@ -98,14 +86,14 @@ export default class DashboardService {
             channel: '?',
             field: measure.name,
             aggregate: 'sum',
-            type: measure.expandedType,
+            type: measure.expandedType as ExpandedType,
             scale: {},
             column: measure,
           },
         ];
 
         if (dimension.type === DatasetColumnType.DATE) {
-          encodings[0].timeUnit = 'year';
+          this.encodingFieldQuery(encodings[0]).timeUnit = 'year';
         }
 
         newData.spec.push(encodings);
@@ -120,10 +108,10 @@ export default class DashboardService {
 
         chartSpecs.push({
           ...data,
-          key: spec[0].field,
-          value: spec[1].field,
-          dimension: newData.spec[0],
-          measure: newData.spec[1],
+          key: this.encodingFieldQuery(spec[0]).field.toString(),
+          value: this.encodingFieldQuery(spec[1]).field.toString(),
+          dimension: spec[0].column, // newData.spec[0],
+          measure: spec[1].column, // newData.spec[1],
         });
       } catch (error) {
         console.log(error);
@@ -134,10 +122,14 @@ export default class DashboardService {
     return chartSpecs;
   }
 
+  private encodingFieldQuery(encoding: EncodingQuery): FieldQuery {
+    return encoding as FieldQuery;
+  }
+
   public async getSpec(dataset: Dataset, spec: DatasetSpecEncodings): Promise<SpecQuery> {
     let queryResult = await this.getDataFromClickHouse(dataset, spec);
 
-    if (spec[0].bin) {
+    if (this.encodingFieldQuery(spec[0]).bin) {
       queryResult = await this.binValues(spec, dataset, queryResult);
     }
 
@@ -158,35 +150,41 @@ export default class DashboardService {
     );
 
     const recommendationSpecs = result.mapLeaves(recommendations.result, (item) => item.toSpec());
-    const recommendationSpec: SpecQuery = recommendationSpecs.items[0].items[0];
+    const recommendationSpec: SpecQuery = (recommendationSpecs.items[0] as any).items[0];
 
     return recommendationSpec;
   }
 
   private async binValues(spec: DatasetSpecEncodings, dataset: Dataset, queryResult: Object[]) {
-    const minMax = await this.clickHouseService.query(`SELECT min(${spec[0].field}) as "min", max(${spec[0].field}) as "max" FROM juno.${dataset.tableName}`);
+    const dimension = this.encodingFieldQuery(spec[0]);
+    const measure = this.encodingFieldQuery(spec[1]);
+
+    const minMax = await this.clickHouseService.query(`SELECT min(${dimension.field}) as "min", max(${dimension.field}) as "max" FROM juno.${dataset.tableName}`);
 
     const newData = {};
     const bins = datalib.bins({ min: minMax[0]['min'], max: minMax[0]['max'], maxbins: 10 });
 
     for (const queryItem of queryResult) {
-      const binIndex = bins.value(queryItem[spec[0].field]);
+      const binIndex = bins.value(queryItem[dimension.field.toString()]);
 
       if (!newData[binIndex]) {
         newData[binIndex] = 0;
       }
 
-      newData[binIndex] += queryItem[spec[1].field];
+      newData[binIndex] += queryItem[measure.field.toString()];
     }
 
     return Object.keys(newData).map((d) => ({
-      [spec[0].field]: d,
-      [spec[1].field]: newData[d],
+      [dimension.field.toString()]: d,
+      [measure.field.toString()]: newData[d],
     }));
   }
 
-  private async getDataFromClickHouse(dataset: Dataset, [dimension, measure]: DatasetSpecEncodings) {
-    const column = dimension.column;
+  private async getDataFromClickHouse(dataset: Dataset, spec: DatasetSpecEncodings) {
+    const dimension = this.encodingFieldQuery(spec[0]);
+    const measure = this.encodingFieldQuery(spec[1]);
+
+    const column = spec[0].column;
     const valueColumnName = measure.field === 'count' ? `count(*)` : `sum(${measure.field})`;
 
     let query: string;
@@ -221,7 +219,7 @@ export default class DashboardService {
 
       query = `SELECT ${columnName} AS "${dimension.field}", ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
     } else {
-      if (dimension.trimValues) {
+      if (spec[0].trimValues) {
         query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${measure.field} ASC LIMIT 30`;
       } else {
         query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
