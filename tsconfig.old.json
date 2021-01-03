@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "es5",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "outDir": "./build",
+    "rootDir": "./src",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "suppressImplicitAnyIndexErrors": true,
+    "declaration": true,
+    "noErrorTruncation": true,
+    "sourceMap": true,
+    "esModuleInterop": false,
+    "skipLibCheck": true,
+    "importHelpers": true,
+    "strict": false,
+    "allowJs": true,
+    "allowSyntheticDefaultImports": true
+  },
+  "include": [
+    "./node_modules/compassql/typings/*.d.ts",
+    "./node_modules/vega-lite/typings/*.d.ts",
+    "./node_modules/@types/**/*.d.ts",
+    "test/**/*.ts",
+    "typings/*.d.ts",
+    "typings/**/*.d.ts",
+    "src/**/*.ts"
+  ],
+  "exclude": ["./node_modules/compassql/typings/json.d.ts", "./node_modules/vega-lite/typings/json.d.ts", "./node_modules/vega-lite/typings/vega.d.ts"]
+}

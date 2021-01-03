@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 
 export interface Router {
   path: string;
-  method: string;
+  method: 'post' | 'get' | 'put' | 'delete';
   action: (request: Request, response: Response) => Promise<void>;
-  middleware?: Function;
+  middleware?: any;
 }

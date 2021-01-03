@@ -1,10 +1,8 @@
-// import { build } from 'compassql/build/src/schema';
-// import { recommend } from 'compassql/build/src/recommend';
-// import { mapLeaves } from 'compassql/build/src/result';
-// import { SpecQuery } from 'compassql/build/src/query/spec';
-// import { EncodingQuery, FieldQuery } from 'compassql/build/src/query/encoding';
-
-import { schema, recommend, result, SpecQuery, EncodingQuery, FieldQuery } from 'compassql';
+import { build } from 'compassql/build/src/schema';
+import { recommend } from 'compassql/build/src/recommend';
+import { mapLeaves } from 'compassql/build/src/result';
+import { SpecQuery } from 'compassql/build/src/query/spec';
+import { EncodingQuery, FieldQuery } from 'compassql/build/src/query/encoding';
 
 import * as datalib from 'datalib';
 import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType, DatasetRecommendation, DatasetSpecEncodings } from '@junoapp/common';
@@ -133,7 +131,7 @@ export default class DashboardService {
       queryResult = await this.binValues(spec, dataset, queryResult);
     }
 
-    const compassSchema = schema.build(queryResult);
+    const compassSchema = build(queryResult);
 
     const recommendations = recommend(
       {
@@ -149,7 +147,7 @@ export default class DashboardService {
       compassSchema
     );
 
-    const recommendationSpecs = result.mapLeaves(recommendations.result, (item) => item.toSpec());
+    const recommendationSpecs = mapLeaves(recommendations.result, (item) => item.toSpec());
     const recommendationSpec: SpecQuery = (recommendationSpecs.items[0] as any).items[0];
 
     return recommendationSpec;
