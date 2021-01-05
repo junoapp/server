@@ -1,8 +1,8 @@
 import { build } from 'compassql/build/src/schema';
 import { recommend } from 'compassql/build/src/recommend';
-import { mapLeaves } from 'compassql/build/src/result';
-import { SpecQuery } from 'compassql/build/src/query/spec';
+import { mapLeaves, ResultTree } from 'compassql/build/src/result';
 import { EncodingQuery, FieldQuery } from 'compassql/build/src/query/encoding';
+import { FacetedUnitSpec, TopLevel } from 'vega-lite/build/src/spec';
 
 import * as datalib from 'datalib';
 import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType, DatasetRecommendation, DatasetSpecEncodings } from '@junoapp/common';
@@ -72,13 +72,12 @@ export default class DashboardService {
 
         const encodings: DatasetSpecEncodings = [
           {
-            // timeUnit: dimension.type === DatasetColumnType.DATE ? 'year' : null,
             channel: '?',
             field: dimension.name,
             type,
             bin: type === DatasetColumnExpandedType.QUANTITATIVE,
             column: dimension,
-            trimValues: dimension.distinctValues > 30,
+            trimValues: dimension.type === DatasetColumnType.STRING && dimension.expandedType !== DatasetColumnExpandedType.GEO && dimension.distinctValues > 30,
           },
           {
             channel: '?',
@@ -102,14 +101,15 @@ export default class DashboardService {
 
     for (const spec of newData.spec) {
       try {
-        const data: SpecQuery = await this.getSpec(dataset, spec);
+        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dataset, spec);
 
         chartSpecs.push({
           ...data,
           key: this.encodingFieldQuery(spec[0]).field.toString(),
           value: this.encodingFieldQuery(spec[1]).field.toString(),
-          dimension: spec[0].column, // newData.spec[0],
-          measure: spec[1].column, // newData.spec[1],
+          dimension: spec[0].column,
+          measure: spec[1].column,
+          trimValues: spec[0].trimValues,
         });
       } catch (error) {
         console.log(error);
@@ -124,7 +124,7 @@ export default class DashboardService {
     return encoding as FieldQuery;
   }
 
-  public async getSpec(dataset: Dataset, spec: DatasetSpecEncodings): Promise<SpecQuery> {
+  public async getSpec(dataset: Dataset, spec: DatasetSpecEncodings): Promise<TopLevel<FacetedUnitSpec>> {
     let queryResult = await this.getDataFromClickHouse(dataset, spec);
 
     if (this.encodingFieldQuery(spec[0]).bin) {
@@ -148,7 +148,8 @@ export default class DashboardService {
     );
 
     const recommendationSpecs = mapLeaves(recommendations.result, (item) => item.toSpec());
-    const recommendationSpec: SpecQuery = (recommendationSpecs.items[0] as any).items[0];
+    const recommnedationSpecItems = recommendationSpecs.items[0] as ResultTree<TopLevel<FacetedUnitSpec>>;
+    const recommendationSpec = recommnedationSpecItems.items[0] as TopLevel<FacetedUnitSpec>;
 
     return recommendationSpec;
   }
