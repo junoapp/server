@@ -12,6 +12,7 @@ import { SnakeNamingStrategy } from './utils/snake-case-strategy';
 import { Dataset } from './entity/Dataset';
 import { DatasetColumn } from './entity/DatasetColumn';
 import { User } from './entity/User';
+import { Dashboard } from './entity/Dashboard';
 
 const PORT = process.env.PORT || 3001;
 
@@ -27,7 +28,7 @@ createConnection({
   database: 'juno',
   synchronize: true,
   logging: false,
-  entities: [Dataset, DatasetColumn, User],
+  entities: [Dataset, DatasetColumn, User, Dashboard],
   migrations: ['src/migration/**/*.ts'],
   subscribers: ['src/subscriber/**/*.ts'],
   cli: {

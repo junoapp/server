@@ -5,7 +5,17 @@ import { EncodingQuery, FieldQuery } from 'compassql/build/src/query/encoding';
 import { FacetedUnitSpec, TopLevel } from 'vega-lite/build/src/spec';
 
 import * as datalib from 'datalib';
-import { DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType, DatasetRecommendation, DatasetSpecEncodings } from '@junoapp/common';
+import {
+  DatasetColumnExpandedType,
+  DatasetColumnInterface,
+  DatasetColumnRole,
+  DatasetColumnType,
+  DatasetInterface,
+  DatasetRecommendation,
+  DatasetSpecEncoding,
+  DatasetSpecEncodings,
+  UserVisLiteracy,
+} from '@junoapp/common';
 
 import { DatasetColumn } from '../entity/DatasetColumn';
 
@@ -26,19 +36,23 @@ export default class DashboardService {
   private constructor() {}
 
   public async getChartRecommendation(datasetId: number): Promise<DatasetRecommendation[]> {
-    const dataset = await DatasetService.instance.getById(datasetId);
+    const dashboard = await DatasetService.instance.getById(datasetId);
 
-    const newData: { dimensions: DatasetColumn[]; measures: DatasetColumn[]; spec: DatasetSpecEncodings[] } = {
+    const newData: { dimensions: DatasetColumnInterface[]; measures: DatasetColumnInterface[]; spec: DatasetSpecEncoding[][] } = {
       dimensions: [],
       measures: [],
       spec: [],
     };
 
-    for (const column of dataset.columns) {
+    let newColumns: DatasetColumnInterface[] = [];
+
+    for (const column of dashboard.datasets[0].columns) {
       if (column.role === DatasetColumnRole.DIMENSION) {
         if (column.type === DatasetColumnType.STRING && column.expandedType !== DatasetColumnExpandedType.GEO) {
           if (column.distinctValues > 1 && column.distinctValues < 500) {
             newData.dimensions.push(column);
+
+            newColumns.push(column);
           }
         } else {
           if (column.expandedType === DatasetColumnExpandedType.GEO) {
@@ -54,6 +68,8 @@ export default class DashboardService {
       }
     }
 
+    newColumns = newColumns.filter((a) => a.distinctValues < 10).sort((a, b) => a.distinctValues - b.distinctValues);
+
     newData.dimensions.sort((a, b) => {
       if (a.type === DatasetColumnType.DATE) {
         return -1;
@@ -66,16 +82,22 @@ export default class DashboardService {
       return a.distinctValues - b.distinctValues;
     });
 
+    console.log(newColumns);
+
     for (const dimension of newData.dimensions) {
+      if (dashboard.user.visLiteracy !== UserVisLiteracy.low && newColumns.length >= 2 && dimension.id === newColumns[1].id) {
+        continue;
+      }
+
       for (const measure of newData.measures) {
         const type = dimension.expandedType === DatasetColumnExpandedType.GEO ? DatasetColumnExpandedType.NOMINAL : dimension.expandedType;
 
-        const encodings: DatasetSpecEncodings = [
+        const encodings: DatasetSpecEncoding[] = [
           {
             channel: '?',
             field: dimension.name,
             type,
-            bin: type === DatasetColumnExpandedType.QUANTITATIVE,
+            bin: type === DatasetColumnExpandedType.QUANTITATIVE && dimension.distinctValues > 50,
             column: dimension,
             trimValues: dimension.type === DatasetColumnType.STRING && dimension.expandedType !== DatasetColumnExpandedType.GEO && dimension.distinctValues > 30,
           },
@@ -89,6 +111,17 @@ export default class DashboardService {
           },
         ];
 
+        if (dashboard.user.visLiteracy !== UserVisLiteracy.low && newColumns.length >= 2 && dimension.id === newColumns[0].id) {
+          encodings.push({
+            channel: 'color',
+            field: newColumns[1].name,
+            type: newColumns[1].expandedType as ExpandedType,
+            bin: false,
+            column: newColumns[1],
+            trimValues: false,
+          });
+        }
+
         if (dimension.type === DatasetColumnType.DATE) {
           this.encodingFieldQuery(encodings[0]).timeUnit = 'year';
         }
@@ -101,7 +134,7 @@ export default class DashboardService {
 
     for (const spec of newData.spec) {
       try {
-        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dataset, spec);
+        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.datasets[0], spec);
 
         chartSpecs.push({
           ...data,
@@ -124,7 +157,7 @@ export default class DashboardService {
     return encoding as FieldQuery;
   }
 
-  public async getSpec(dataset: Dataset, spec: DatasetSpecEncodings): Promise<TopLevel<FacetedUnitSpec>> {
+  public async getSpec(dataset: DatasetInterface, spec: DatasetSpecEncoding[]): Promise<TopLevel<FacetedUnitSpec>> {
     let queryResult = await this.getDataFromClickHouse(dataset, spec);
 
     if (this.encodingFieldQuery(spec[0]).bin) {
@@ -154,7 +187,7 @@ export default class DashboardService {
     return recommendationSpec;
   }
 
-  private async binValues(spec: DatasetSpecEncodings, dataset: Dataset, queryResult: Object[]) {
+  private async binValues(spec: DatasetSpecEncoding[], dataset: DatasetInterface, queryResult: Object[]) {
     const dimension = this.encodingFieldQuery(spec[0]);
     const measure = this.encodingFieldQuery(spec[1]);
 
@@ -179,7 +212,7 @@ export default class DashboardService {
     }));
   }
 
-  private async getDataFromClickHouse(dataset: Dataset, spec: DatasetSpecEncodings) {
+  private async getDataFromClickHouse(dataset: DatasetInterface, spec: DatasetSpecEncoding[]) {
     const dimension = this.encodingFieldQuery(spec[0]);
     const measure = this.encodingFieldQuery(spec[1]);
 
@@ -221,7 +254,13 @@ export default class DashboardService {
       if (spec[0].trimValues) {
         query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${measure.field} ASC LIMIT 30`;
       } else {
-        query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
+        if (spec.length === 3) {
+          const column = this.encodingFieldQuery(spec[2]);
+
+          query = `SELECT ${dimension.field}, ${column.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field}, ${column.field} ORDER BY ${dimension.field} ASC`;
+        } else {
+          query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
+        }
       }
     }
 

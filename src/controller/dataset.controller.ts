@@ -6,7 +6,7 @@ const datasetService: DatasetService = DatasetService.instance;
 
 export default class DatasetController {
   public async getAll(request: Request, response: Response): Promise<void> {
-    const datasets = await datasetService.getAll();
+    const datasets = await datasetService.getAll(+request.params.id);
 
     response.send(datasets);
   }
@@ -19,7 +19,8 @@ export default class DatasetController {
 
   public async upload(request: Request, response: Response): Promise<void> {
     if (request.file) {
-      const dataset = await datasetService.upload(request.file);
+      console.log(request.body.user);
+      const dataset = await datasetService.upload(+request.body.user, request.file);
       response.send(dataset);
     } else {
       response.status(400).send({ error: 'File not found' });

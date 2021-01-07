@@ -1,7 +1,8 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
-import { UserDisability, UserInterface, UserVisLiteracy } from '@junoapp/common';
+import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { DashboardInterface, UserDisability, UserInterface, UserVisLiteracy } from '@junoapp/common';
 
 import { BasicColumns } from '../utils/basic-columns';
+import { Dashboard } from './Dashboard';
 
 @Entity()
 export class User extends BasicColumns implements UserInterface {
@@ -16,4 +17,7 @@ export class User extends BasicColumns implements UserInterface {
 
   @Column()
   visLiteracy: UserVisLiteracy;
+
+  @OneToMany((type) => Dashboard, (columns) => columns.user)
+  dashboards: DashboardInterface[];
 }
