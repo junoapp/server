@@ -1,9 +1,14 @@
 import { Column, Entity, PrimaryGeneratedColumn, OneToMany, ManyToOne } from 'typeorm';
-import { DashboardInterface, DatasetInterface } from '@junoapp/common';
+import { DashboardInterface, DatasetInterface, UserInterface } from '@junoapp/common';
 
 import { BasicColumns } from '../utils/basic-columns';
 import { DatasetColumn } from './DatasetColumn';
 import { Dashboard } from './Dashboard';
+import { UserDataset } from './UserDataset';
+import { User } from './User';
+import { UserDatasetInterface } from '@junoapp/common/dist/entity/UserDataset';
+import { UserDatasetColumnInterface } from '@junoapp/common/dist/entity/UserDatasetColumn';
+import { UserDatasetColumn } from './UserDatasetColumn';
 
 @Entity()
 export class Dataset extends BasicColumns implements DatasetInterface {
@@ -40,6 +45,9 @@ export class Dataset extends BasicColumns implements DatasetInterface {
   @OneToMany((type) => DatasetColumn, (columns) => columns.dataset)
   columns: DatasetColumn[];
 
-  @ManyToOne((type) => Dashboard, (dashboard) => dashboard.datasets)
-  dashboard: DashboardInterface;
+  @OneToMany((type) => UserDataset, (userDatasets) => userDatasets.dataset)
+  userDatasets: UserDatasetInterface[];
+
+  @ManyToOne((type) => User, (user) => user.datasets)
+  addedBy: UserInterface;
 }

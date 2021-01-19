@@ -1,8 +1,10 @@
-import { Column, Entity, PrimaryGeneratedColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn, ManyToOne, OneToMany } from 'typeorm';
 import { DatasetColumnInterface, DatasetColumnRole, DatasetColumnType, DatasetColumnExpandedType } from '@junoapp/common';
 
 import { BasicColumns } from '../utils/basic-columns';
 import { Dataset } from './Dataset';
+import { UserDatasetColumnInterface } from '@junoapp/common/dist/entity/UserDatasetColumn';
+import { UserDatasetColumn } from './UserDatasetColumn';
 
 @Entity()
 export class DatasetColumn extends BasicColumns implements DatasetColumnInterface {
@@ -47,4 +49,7 @@ export class DatasetColumn extends BasicColumns implements DatasetColumnInterfac
 
   @ManyToOne((type) => Dataset, (dataset) => dataset.columns)
   dataset: Dataset;
+
+  @OneToMany((type) => UserDatasetColumn, (userDatasets) => userDatasets.column)
+  userDatasetColumns: UserDatasetColumnInterface[];
 }

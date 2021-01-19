@@ -1,8 +1,10 @@
 import { DashboardGoal, DashboardInterface, DashboardPurpose, DatasetInterface, UserInterface } from '@junoapp/common';
+import { UserDatasetInterface } from '@junoapp/common/dist/entity/UserDataset';
 import { Column, Entity, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { BasicColumns } from '../utils/basic-columns';
 import { Dataset } from './Dataset';
 import { User } from './User';
+import { UserDataset } from './UserDataset';
 
 @Entity()
 export class Dashboard extends BasicColumns implements DashboardInterface {
@@ -13,14 +15,11 @@ export class Dashboard extends BasicColumns implements DashboardInterface {
   name: string;
 
   @Column({ nullable: true })
-  goal: DashboardGoal;
+  goalType: DashboardGoal;
 
   @Column({ nullable: true })
-  purpose: DashboardPurpose;
+  goalPurpose: DashboardPurpose;
 
-  @OneToMany((type) => Dataset, (columns) => columns.dashboard)
-  datasets: DatasetInterface[];
-
-  @ManyToOne((type) => User, (user) => user.dashboards)
-  user: UserInterface;
+  @OneToMany((type) => UserDataset, (columns) => columns.dashboard)
+  userDatasets: UserDatasetInterface[];
 }

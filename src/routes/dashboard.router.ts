@@ -5,8 +5,23 @@ const dashboardController = new DashboardController();
 
 export const dashboardRoutes: Router[] = [
   {
-    path: 'dashboard/:datasetId/spec',
+    path: 'dashboard',
     method: 'get',
-    action: dashboardController.getSpec,
+    action: dashboardController.getAll,
+  },
+  {
+    path: 'dashboard/:id',
+    method: 'get',
+    action: dashboardController.getById,
+  },
+  {
+    path: 'dashboard/:id',
+    method: 'post',
+    action: dashboardController.save,
+  },
+  {
+    path: 'dashboard/:id',
+    method: 'delete',
+    action: dashboardController.delete,
   },
 ];

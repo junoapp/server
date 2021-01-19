@@ -1,28 +1,23 @@
-import { build } from 'compassql/build/src/schema';
-import { recommend } from 'compassql/build/src/recommend';
-import { mapLeaves, ResultTree } from 'compassql/build/src/result';
-import { EncodingQuery, FieldQuery } from 'compassql/build/src/query/encoding';
-import { FacetedUnitSpec, TopLevel } from 'vega-lite/build/src/spec';
-
+import { getManager, EntityManager } from 'typeorm';
+import * as fs from 'fs';
 import * as datalib from 'datalib';
-import {
-  DatasetColumnExpandedType,
-  DatasetColumnInterface,
-  DatasetColumnRole,
-  DatasetColumnType,
-  DatasetInterface,
-  DatasetRecommendation,
-  DatasetSpecEncoding,
-  DatasetSpecEncodings,
-  UserVisLiteracy,
-} from '@junoapp/common';
+import { parse, unparse } from 'papaparse';
+import { format, parse as dateParse } from 'date-fns';
+import { DashboardInterface, DashboardUpdate, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType, DatasetInterface } from '@junoapp/common';
 
-import { DatasetColumn } from '../entity/DatasetColumn';
-
-import DatasetService from './dataset.service';
-import ClickHouseService from './clickhouse.service';
 import { Dataset } from '../entity/Dataset';
-import { ExpandedType } from 'compassql/build/src/query/expandedtype';
+import { DatasetColumn } from '../entity/DatasetColumn';
+import { DatasetColumnRequest } from '../dto/dataset-column-request';
+import logger from '../utils/logger';
+import { convertName, getFilename } from '../utils/functions';
+import { convert, TimeUnit } from '../utils/timeunit';
+import ClickHouseService from './clickhouse.service';
+import { Dashboard } from '../entity/Dashboard';
+import { User } from '../entity/User';
+import UserService from './user.service';
+import { UserDataset } from '../entity/UserDataset';
+import DatasetService from './dataset.service';
+import { UserDatasetColumn } from '../entity/UserDatasetColumn';
 
 export default class DashboardService {
   private static singletonInstance: DashboardService;
@@ -35,237 +30,96 @@ export default class DashboardService {
 
   private constructor() {}
 
-  public async getChartRecommendation(datasetId: number): Promise<DatasetRecommendation[]> {
-    const dashboard = await DatasetService.instance.getById(datasetId);
+  private get entityManager(): EntityManager {
+    return getManager();
+  }
 
-    const newData: { dimensions: DatasetColumnInterface[]; measures: DatasetColumnInterface[]; spec: DatasetSpecEncoding[][] } = {
-      dimensions: [],
-      measures: [],
-      spec: [],
-    };
+  public async getAll(): Promise<DatasetInterface[]> {
+    return this.entityManager
+      .createQueryBuilder(Dataset, 'dataset')
+      .leftJoinAndSelect('dataset.addedBy', 'addedBy')
+      .leftJoinAndSelect('dataset.userDatasets', 'userDatasets')
+      .leftJoinAndSelect('dataset.columns', 'column')
+      .orderBy('dataset.updatedDate', 'DESC')
+      .getMany();
+  }
 
-    let newColumns: DatasetColumnInterface[] = [];
+  public async getById(id: number): Promise<DatasetInterface> {
+    return this.entityManager
+      .createQueryBuilder(Dataset, 'dataset')
+      .leftJoinAndSelect('dataset.addedBy', 'addedBy')
+      .leftJoinAndSelect('dataset.userDatasets', 'userDatasets')
+      .leftJoinAndSelect('dataset.columns', 'columns')
+      .where('dataset.id = :id', { id })
+      .orderBy('columns.role', 'ASC')
+      .addOrderBy('columns.name', 'ASC')
+      .getOne();
+  }
 
-    for (const column of dashboard.datasets[0].columns) {
-      if (column.role === DatasetColumnRole.DIMENSION) {
-        if (column.type === DatasetColumnType.STRING && column.expandedType !== DatasetColumnExpandedType.GEO) {
-          if (column.distinctValues > 1 && column.distinctValues < 500) {
-            newData.dimensions.push(column);
+  public async save(datasetId: number, dashboardUpdate: DashboardUpdate): Promise<void> {
+    await this.entityManager
+      .transaction(async (entityManager) => {
+        const dataset = await DatasetService.instance.getById(datasetId);
+        const user = await UserService.instance.getById(dashboardUpdate.user);
 
-            newColumns.push(column);
-          }
-        } else {
-          if (column.expandedType === DatasetColumnExpandedType.GEO) {
-            if (column.distinctValues > 1 && column.distinctValues < 30) {
-              newData.dimensions.push(column);
-            }
-          } else {
-            newData.dimensions.push(column);
-          }
-        }
-      } else {
-        newData.measures.push(column);
-      }
-    }
+        let userDataset = new UserDataset();
+        userDataset.dataset = dataset;
+        userDataset.owner = user;
+        userDataset.columns = [];
 
-    newColumns = newColumns.filter((a) => a.distinctValues < 10).sort((a, b) => a.distinctValues - b.distinctValues);
+        userDataset = await entityManager.save(UserDataset, userDataset);
 
-    newData.dimensions.sort((a, b) => {
-      if (a.type === DatasetColumnType.DATE) {
-        return -1;
-      }
+        // const ids = dashboardUpdate.colums.map((c) => c.id);
 
-      if (b.type === DatasetColumnType.DATE) {
-        return 1;
-      }
+        // const dashboard = await entityManager.findOne(Dashboard, dashboardId, { relations: ['datasets'] });
 
-      return a.distinctValues - b.distinctValues;
-    });
+        // dashboard.name = dashboardUpdate.name;
+        // dashboard.goal = dashboardUpdate.goal;
+        // dashboard.purpose = dashboardUpdate.purpose;
 
-    console.log(newColumns);
+        // await entityManager.save(Dashboard, dashboard);
 
-    for (const dimension of newData.dimensions) {
-      if (dashboard.user.visLiteracy !== UserVisLiteracy.low && newColumns.length >= 2 && dimension.id === newColumns[1].id) {
-        continue;
-      }
+        // await entityManager.createQueryBuilder().delete().from(DatasetColumn).where('id not in (:...ids)', { ids }).andWhere('dataset_id = :dataset', { dataset: dashboard.datasets[0].id }).execute();
 
-      for (const measure of newData.measures) {
-        const type = dimension.expandedType === DatasetColumnExpandedType.GEO ? DatasetColumnExpandedType.NOMINAL : dimension.expandedType;
+        for (const columnRequest of dashboardUpdate.colums) {
+          const column = await entityManager.findOne(DatasetColumn, columnRequest.id);
 
-        const encodings: DatasetSpecEncoding[] = [
-          {
-            channel: '?',
-            field: dimension.name,
-            type,
-            bin: type === DatasetColumnExpandedType.QUANTITATIVE && dimension.distinctValues > 50,
-            column: dimension,
-            trimValues: dimension.type === DatasetColumnType.STRING && dimension.expandedType !== DatasetColumnExpandedType.GEO && dimension.distinctValues > 30,
-          },
-          {
-            channel: '?',
-            field: measure.name,
-            aggregate: 'sum',
-            type: measure.expandedType as ExpandedType,
-            scale: {},
-            column: measure,
-          },
-        ];
+          const userDatasetColumn = new UserDatasetColumn();
+          userDatasetColumn.userDataset = userDataset;
+          userDatasetColumn.column = column;
+          userDatasetColumn.role = columnRequest.role;
+          userDatasetColumn.index = columnRequest.index;
+          userDatasetColumn.name = columnRequest.name;
+          userDatasetColumn.removed = columnRequest.removed;
 
-        if (dashboard.user.visLiteracy !== UserVisLiteracy.low && newColumns.length >= 2 && dimension.id === newColumns[0].id) {
-          encodings.push({
-            channel: 'color',
-            field: newColumns[1].name,
-            type: newColumns[1].expandedType as ExpandedType,
-            bin: false,
-            column: newColumns[1],
-            trimValues: false,
-          });
+          await entityManager.save(UserDatasetColumn, userDatasetColumn);
         }
 
-        if (dimension.type === DatasetColumnType.DATE) {
-          this.encodingFieldQuery(encodings[0]).timeUnit = 'year';
-        }
+        const dashboard = new Dashboard();
+        dashboard.userDatasets = [userDataset];
+        dashboard.goalType = dashboardUpdate.goal;
+        dashboard.goalPurpose = dashboardUpdate.purpose;
+        dashboard.name = dashboardUpdate.name;
 
-        newData.spec.push(encodings);
-      }
-    }
-
-    const chartSpecs: DatasetRecommendation[] = [];
-
-    for (const spec of newData.spec) {
-      try {
-        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.datasets[0], spec);
-
-        chartSpecs.push({
-          ...data,
-          key: this.encodingFieldQuery(spec[0]).field.toString(),
-          value: this.encodingFieldQuery(spec[1]).field.toString(),
-          dimension: spec[0].column,
-          measure: spec[1].column,
-          trimValues: spec[0].trimValues,
-        });
-      } catch (error) {
+        await entityManager.save(Dashboard, dashboard);
+      })
+      .catch((error) => {
         console.log(error);
-        continue;
-      }
-    }
-
-    return chartSpecs;
+      });
   }
 
-  private encodingFieldQuery(encoding: EncodingQuery): FieldQuery {
-    return encoding as FieldQuery;
-  }
+  public async delete(id: number): Promise<void> {
+    const dataset = await this.getById(id);
 
-  public async getSpec(dataset: DatasetInterface, spec: DatasetSpecEncoding[]): Promise<TopLevel<FacetedUnitSpec>> {
-    let queryResult = await this.getDataFromClickHouse(dataset, spec);
+    await this.entityManager.transaction(async (entityManager) => {
+      await entityManager.delete(DatasetColumn, { dataset: dataset.id });
+      await entityManager.delete(Dataset, dataset.id);
 
-    if (this.encodingFieldQuery(spec[0]).bin) {
-      queryResult = await this.binValues(spec, dataset, queryResult);
-    }
-
-    const compassSchema = build(queryResult);
-
-    const recommendations = recommend(
-      {
-        spec: {
-          data: { values: queryResult },
-          mark: '?',
-          encodings: spec,
-        },
-        orderBy: ['aggregationQuality', 'effectiveness'],
-        chooseBy: ['aggregationQuality', 'effectiveness'],
-        groupBy: 'encoding',
-      },
-      compassSchema
-    );
-
-    const recommendationSpecs = mapLeaves(recommendations.result, (item) => item.toSpec());
-    const recommnedationSpecItems = recommendationSpecs.items[0] as ResultTree<TopLevel<FacetedUnitSpec>>;
-    const recommendationSpec = recommnedationSpecItems.items[0] as TopLevel<FacetedUnitSpec>;
-
-    return recommendationSpec;
-  }
-
-  private async binValues(spec: DatasetSpecEncoding[], dataset: DatasetInterface, queryResult: Object[]) {
-    const dimension = this.encodingFieldQuery(spec[0]);
-    const measure = this.encodingFieldQuery(spec[1]);
-
-    const minMax = await this.clickHouseService.query(`SELECT min(${dimension.field}) as "min", max(${dimension.field}) as "max" FROM juno.${dataset.tableName}`);
-
-    const newData = {};
-    const bins = datalib.bins({ min: minMax[0]['min'], max: minMax[0]['max'], maxbins: 10 });
-
-    for (const queryItem of queryResult) {
-      const binIndex = bins.value(queryItem[dimension.field.toString()]);
-
-      if (!newData[binIndex]) {
-        newData[binIndex] = 0;
+      try {
+        fs.unlinkSync(dataset.path);
+      } catch (error) {
+        logger.error('Some file does not exist');
       }
-
-      newData[binIndex] += queryItem[measure.field.toString()];
-    }
-
-    return Object.keys(newData).map((d) => ({
-      [dimension.field.toString()]: d,
-      [measure.field.toString()]: newData[d],
-    }));
-  }
-
-  private async getDataFromClickHouse(dataset: DatasetInterface, spec: DatasetSpecEncoding[]) {
-    const dimension = this.encodingFieldQuery(spec[0]);
-    const measure = this.encodingFieldQuery(spec[1]);
-
-    const column = spec[0].column;
-    const valueColumnName = measure.field === 'count' ? `count(*)` : `sum(${measure.field})`;
-
-    let query: string;
-
-    if (column.type === DatasetColumnType.DATE) {
-      const dataInfo: Object[] = await this.clickHouseService.query(
-        `
-          SELECT
-            min(${column.name}) AS "min",
-            max(${column.name}) AS "max",
-            datediff('year', min(${column.name}), max(${column.name})) AS "year",
-            datediff('quarter', min(${column.name}), max(${column.name})) AS "quarter",
-            datediff('month', min(${column.name}), max(${column.name})) AS "month",
-            datediff('week', min(${column.name}), max(${column.name})) AS "week",
-            datediff('day', min(${column.name}), max(${column.name})) AS "day"
-          FROM juno.${dataset.tableName}
-          `
-      );
-
-      let format = '%Y';
-      if (dataInfo[0]['year'] >= 5) {
-        format = '%Y';
-      } else if (dataInfo[0]['month'] >= 5) {
-        format = '%Y/%m';
-      } else if (dataInfo[0]['week'] >= 5) {
-        format = '%Y/%m-%V';
-      } else if (dataInfo[0]['day'] >= 5) {
-        format = '%Y/%m/%d';
-      }
-
-      const columnName = `formatDateTime(${column.name}, '${format}')`;
-
-      query = `SELECT ${columnName} AS "${dimension.field}", ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
-    } else {
-      if (spec[0].trimValues) {
-        query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${measure.field} ASC LIMIT 30`;
-      } else {
-        if (spec.length === 3) {
-          const column = this.encodingFieldQuery(spec[2]);
-
-          query = `SELECT ${dimension.field}, ${column.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field}, ${column.field} ORDER BY ${dimension.field} ASC`;
-        } else {
-          query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
-        }
-      }
-    }
-
-    console.log(query);
-
-    return this.clickHouseService.query(query);
+    });
   }
 }

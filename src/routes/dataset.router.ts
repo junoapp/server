@@ -21,7 +21,7 @@ const uploader = multer({ storage });
 
 export const datasetRoutes: Router[] = [
   {
-    path: 'dataset/user/:id',
+    path: 'dataset',
     method: 'get',
     action: datasetController.getAll,
   },

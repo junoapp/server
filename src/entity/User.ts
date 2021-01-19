@@ -3,6 +3,8 @@ import { DashboardInterface, UserDisability, UserInterface, UserVisLiteracy } fr
 
 import { BasicColumns } from '../utils/basic-columns';
 import { Dashboard } from './Dashboard';
+import { Dataset } from './Dataset';
+import { UserDataset } from './UserDataset';
 
 @Entity()
 export class User extends BasicColumns implements UserInterface {
@@ -18,6 +20,9 @@ export class User extends BasicColumns implements UserInterface {
   @Column()
   visLiteracy: UserVisLiteracy;
 
-  @OneToMany((type) => Dashboard, (columns) => columns.user)
-  dashboards: DashboardInterface[];
+  @OneToMany((type) => Dataset, (columns) => columns.addedBy)
+  datasets: Dataset[];
+
+  @OneToMany((type) => UserDataset, (columns) => columns.owner)
+  userDatasets: UserDataset[];
 }

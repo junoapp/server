@@ -6,7 +6,7 @@ const datasetService: DatasetService = DatasetService.instance;
 
 export default class DatasetController {
   public async getAll(request: Request, response: Response): Promise<void> {
-    const datasets = await datasetService.getAll(+request.params.id);
+    const datasets = await datasetService.getAll();
 
     response.send(datasets);
   }

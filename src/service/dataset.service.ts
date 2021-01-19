@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as datalib from 'datalib';
 import { parse, unparse } from 'papaparse';
 import { format, parse as dateParse } from 'date-fns';
-import { DashboardInterface, DashboardUpdate, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType } from '@junoapp/common';
+import { DashboardInterface, DashboardUpdate, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType, DatasetInterface } from '@junoapp/common';
 
 import { Dataset } from '../entity/Dataset';
 import { DatasetColumn } from '../entity/DatasetColumn';
@@ -14,6 +14,7 @@ import { convert, TimeUnit } from '../utils/timeunit';
 import ClickHouseService from './clickhouse.service';
 import { Dashboard } from '../entity/Dashboard';
 import { User } from '../entity/User';
+import UserService from './user.service';
 
 export default class DatasetService {
   private static singletonInstance: DatasetService;
@@ -30,37 +31,32 @@ export default class DatasetService {
     return getManager();
   }
 
-  public async getAll(userId: number): Promise<DashboardInterface[]> {
+  public async getAll(): Promise<DatasetInterface[]> {
     return this.entityManager
-      .createQueryBuilder(Dashboard, 'dashboard')
-      .leftJoinAndSelect('dashboard.user', 'user')
-      .leftJoinAndSelect('dashboard.datasets', 'datasets')
-      .leftJoinAndSelect('datasets.columns', 'column')
-      .where('user.id = :id', { id: userId })
-      .orderBy('dashboard.updatedDate', 'DESC')
+      .createQueryBuilder(Dataset, 'dataset')
+      .leftJoinAndSelect('dataset.addedBy', 'addedBy')
+      .leftJoinAndSelect('dataset.userDatasets', 'userDatasets')
+      .leftJoinAndSelect('dataset.columns', 'column')
+      .orderBy('dataset.updatedDate', 'DESC')
       .getMany();
   }
 
-  public async getById(id: number): Promise<Dashboard> {
+  public async getById(id: number): Promise<DatasetInterface> {
     return this.entityManager
-      .createQueryBuilder(Dashboard, 'dashboard')
-      .leftJoinAndSelect('dashboard.user', 'user')
-      .leftJoinAndSelect('dashboard.datasets', 'dataset')
+      .createQueryBuilder(Dataset, 'dataset')
+      .leftJoinAndSelect('dataset.addedBy', 'addedBy')
+      .leftJoinAndSelect('dataset.userDatasets', 'userDatasets')
       .leftJoinAndSelect('dataset.columns', 'columns')
-      .where('dashboard.id = :id', { id })
+      .where('dataset.id = :id', { id })
       .orderBy('columns.role', 'ASC')
       .addOrderBy('columns.name', 'ASC')
       .getOne();
   }
 
-  public async upload(userId: number, file: Express.Multer.File): Promise<Dashboard> {
+  public async upload(userId: number, file: Express.Multer.File): Promise<Dataset> {
     const [name] = getFilename(file.originalname);
 
-    let dashboard = new Dashboard();
-    dashboard.user = new User();
-    dashboard.user.id = userId;
-
-    dashboard = await this.entityManager.save(Dashboard, dashboard);
+    const user = await UserService.instance.getById(userId);
 
     let dataset = new Dataset();
     dataset.path = file.path;
@@ -72,15 +68,13 @@ export default class DatasetService {
     dataset.destination = file.destination;
     dataset.filename = file.filename;
     dataset.tableName = name;
-    dataset.dashboard = dashboard;
+    dataset.addedBy = user;
 
     this.insertClickhouse(dataset)
       .then(() => console.log('success'))
       .catch((error) => console.log('error', error));
 
-    await this.entityManager.save(Dataset, dataset);
-
-    return dashboard;
+    return await this.entityManager.save(Dataset, dataset);
   }
 
   public async getColumns(datasetId: number): Promise<DashboardInterface> {
@@ -119,21 +113,17 @@ export default class DatasetService {
   }
 
   public async delete(id: number): Promise<void> {
-    const dashboard = await this.getById(id);
+    const dataset = await this.getById(id);
 
     await this.entityManager.transaction(async (entityManager) => {
-      for (const dataset of dashboard.datasets) {
-        await entityManager.delete(DatasetColumn, { dataset: dataset.id });
-        await entityManager.delete(Dataset, dataset.id);
+      await entityManager.delete(DatasetColumn, { dataset: dataset.id });
+      await entityManager.delete(Dataset, dataset.id);
 
-        try {
-          fs.unlinkSync(dataset.path);
-        } catch (error) {
-          logger.error('Some file does not exist');
-        }
+      try {
+        fs.unlinkSync(dataset.path);
+      } catch (error) {
+        logger.error('Some file does not exist');
       }
-
-      await entityManager.delete(Dashboard, dashboard.id);
     });
   }
 

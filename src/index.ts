@@ -13,6 +13,8 @@ import { Dataset } from './entity/Dataset';
 import { DatasetColumn } from './entity/DatasetColumn';
 import { User } from './entity/User';
 import { Dashboard } from './entity/Dashboard';
+import { UserDataset } from './entity/UserDataset';
+import { UserDatasetColumn } from './entity/UserDatasetColumn';
 
 const PORT = process.env.PORT || 3001;
 
@@ -28,7 +30,7 @@ createConnection({
   database: 'juno',
   synchronize: true,
   logging: false,
-  entities: [Dataset, DatasetColumn, User, Dashboard],
+  entities: [Dataset, DatasetColumn, User, Dashboard, UserDataset, UserDatasetColumn],
   migrations: ['src/migration/**/*.ts'],
   subscribers: ['src/subscriber/**/*.ts'],
   cli: {
