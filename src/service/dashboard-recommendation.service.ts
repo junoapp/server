@@ -23,6 +23,7 @@ import DatasetService from './dataset.service';
 import ClickHouseService from './clickhouse.service';
 import { Dataset } from '../entity/Dataset';
 import { ExpandedType } from 'compassql/build/src/query/expandedtype';
+import DashboardService from './dashboard.service';
 
 export default class DashboardRecommendationService {
   private static singletonInstance: DashboardRecommendationService;
@@ -36,7 +37,7 @@ export default class DashboardRecommendationService {
   private constructor() {}
 
   public async getChartRecommendation(datasetId: number): Promise<DatasetRecommendation[]> {
-    const dashboard = await DatasetService.instance.getById(datasetId);
+    const dashboard = await DashboardService.instance.getById(datasetId);
 
     const newData: { dimensions: DatasetColumnInterface[]; measures: DatasetColumnInterface[]; spec: DatasetSpecEncoding[][] } = {
       dimensions: [],
@@ -46,25 +47,29 @@ export default class DashboardRecommendationService {
 
     let newColumns: DatasetColumnInterface[] = [];
 
-    for (const column of dashboard.datasets[0].columns) {
-      if (column.role === DatasetColumnRole.DIMENSION) {
-        if (column.type === DatasetColumnType.STRING && column.expandedType !== DatasetColumnExpandedType.GEO) {
-          if (column.distinctValues > 1 && column.distinctValues < 500) {
-            newData.dimensions.push(column);
+    for (const userColumn of dashboard.userDatasets[0].columns) {
+      if (userColumn.removed) {
+        continue;
+      }
 
-            newColumns.push(column);
+      if (userColumn.role === DatasetColumnRole.DIMENSION) {
+        if (userColumn.column.type === DatasetColumnType.STRING && userColumn.column.expandedType !== DatasetColumnExpandedType.GEO) {
+          if (userColumn.column.distinctValues > 1 && userColumn.column.distinctValues < 500) {
+            newData.dimensions.push(userColumn.column);
+
+            newColumns.push(userColumn.column);
           }
         } else {
-          if (column.expandedType === DatasetColumnExpandedType.GEO) {
-            if (column.distinctValues > 1 && column.distinctValues < 30) {
-              newData.dimensions.push(column);
+          if (userColumn.column.expandedType === DatasetColumnExpandedType.GEO) {
+            if (userColumn.column.distinctValues > 1 && userColumn.column.distinctValues < 30) {
+              newData.dimensions.push(userColumn.column);
             }
           } else {
-            newData.dimensions.push(column);
+            newData.dimensions.push(userColumn.column);
           }
         }
       } else {
-        newData.measures.push(column);
+        newData.measures.push(userColumn.column);
       }
     }
 
@@ -85,7 +90,7 @@ export default class DashboardRecommendationService {
     console.log(newColumns);
 
     for (const dimension of newData.dimensions) {
-      if (dashboard.user.visLiteracy !== UserVisLiteracy.low && newColumns.length >= 2 && dimension.id === newColumns[1].id) {
+      if (dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low && newColumns.length >= 2 && dimension.id === newColumns[1].id) {
         continue;
       }
 
@@ -111,7 +116,7 @@ export default class DashboardRecommendationService {
           },
         ];
 
-        if (dashboard.user.visLiteracy !== UserVisLiteracy.low && newColumns.length >= 2 && dimension.id === newColumns[0].id) {
+        if (dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low && newColumns.length >= 2 && dimension.id === newColumns[0].id) {
           encodings.push({
             channel: 'color',
             field: newColumns[1].name,
@@ -134,7 +139,7 @@ export default class DashboardRecommendationService {
 
     for (const spec of newData.spec) {
       try {
-        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.datasets[0], spec);
+        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.userDatasets[0].dataset, spec);
 
         chartSpecs.push({
           ...data,

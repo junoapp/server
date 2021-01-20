@@ -5,7 +5,7 @@ const dashboardService: DashboardService = DashboardService.instance;
 
 export default class DashboardController {
   public async getAll(request: Request, response: Response): Promise<void> {
-    const dashboards = await dashboardService.getAll();
+    const dashboards = await dashboardService.getAll(+request.query.user);
 
     response.send(dashboards);
   }
@@ -17,7 +17,13 @@ export default class DashboardController {
   }
 
   public async save(request: Request, response: Response): Promise<void> {
-    await dashboardService.save(+request.params.id, request.body);
+    await dashboardService.save(request.body);
+
+    response.send();
+  }
+
+  public async update(request: Request, response: Response): Promise<void> {
+    await dashboardService.update(request.body);
 
     response.send();
   }

@@ -15,9 +15,14 @@ export const dashboardRoutes: Router[] = [
     action: dashboardController.getById,
   },
   {
-    path: 'dashboard/:id',
+    path: 'dashboard',
     method: 'post',
     action: dashboardController.save,
+  },
+  {
+    path: 'dashboard',
+    method: 'put',
+    action: dashboardController.update,
   },
   {
     path: 'dashboard/:id',
