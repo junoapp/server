@@ -91,12 +91,18 @@ export default class DatasetService {
         const dashboard = await entityManager.findOne(Dashboard, dashboardId, { relations: ['datasets'] });
 
         dashboard.name = dashboardUpdate.name;
-        dashboard.goal = dashboardUpdate.goal;
-        dashboard.purpose = dashboardUpdate.purpose;
+        dashboard.goalType = dashboardUpdate.goal;
+        dashboard.goalPurpose = dashboardUpdate.purpose;
 
         await entityManager.save(Dashboard, dashboard);
 
-        await entityManager.createQueryBuilder().delete().from(DatasetColumn).where('id not in (:...ids)', { ids }).andWhere('dataset_id = :dataset', { dataset: dashboard.datasets[0].id }).execute();
+        await entityManager
+          .createQueryBuilder()
+          .delete()
+          .from(DatasetColumn)
+          .where('id not in (:...ids)', { ids })
+          .andWhere('dataset_id = :dataset', { dataset: dashboard.userDatasets[0].dataset.id })
+          .execute();
 
         for (const columnRequest of dashboardUpdate.colums) {
           const column = await entityManager.findOne(DatasetColumn, columnRequest.id);
