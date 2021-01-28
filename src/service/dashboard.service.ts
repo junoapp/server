@@ -76,18 +76,6 @@ export default class DashboardService {
 
         userDataset = await entityManager.save(UserDataset, userDataset);
 
-        // const ids = dashboardUpdate.colums.map((c) => c.id);
-
-        // const dashboard = await entityManager.findOne(Dashboard, dashboardId, { relations: ['datasets'] });
-
-        // dashboard.name = dashboardUpdate.name;
-        // dashboard.goal = dashboardUpdate.goal;
-        // dashboard.purpose = dashboardUpdate.purpose;
-
-        // await entityManager.save(Dashboard, dashboard);
-
-        // await entityManager.createQueryBuilder().delete().from(DatasetColumn).where('id not in (:...ids)', { ids }).andWhere('dataset_id = :dataset', { dataset: dashboard.datasets[0].id }).execute();
-
         for (const columnRequest of dashboardInsert.colums) {
           const column = await entityManager.findOne(DatasetColumn, columnRequest.id);
 
@@ -98,6 +86,7 @@ export default class DashboardService {
           userDatasetColumn.index = columnRequest.index;
           userDatasetColumn.name = columnRequest.name;
           userDatasetColumn.removed = columnRequest.removed;
+          userDatasetColumn.aggregate = columnRequest.aggregate;
 
           await entityManager.save(UserDatasetColumn, userDatasetColumn);
         }
@@ -120,44 +109,18 @@ export default class DashboardService {
       .transaction(async (entityManager) => {
         const dashboard = await this.getById(dashboardUpdate.id);
 
-        const dataset = await DatasetService.instance.getById(dashboard.userDatasets[0].dataset.id);
-        const user = await UserService.instance.getById(dashboardUpdate.user);
-
-        // let userDataset = new UserDataset();
-        // userDataset.dataset = dataset;
-        // userDataset.owner = user;
-        // userDataset.columns = [];
-
-        const userDataset = await entityManager.findOne(UserDataset, dashboard.userDatasets[0].id);
-
-        // const ids = dashboardUpdate.colums.map((c) => c.id);
-
-        // const dashboard = await entityManager.findOne(Dashboard, dashboardId, { relations: ['datasets'] });
-
-        // dashboard.name = dashboardUpdate.name;
-        // dashboard.goal = dashboardUpdate.goal;
-        // dashboard.purpose = dashboardUpdate.purpose;
-
-        // await entityManager.save(Dashboard, dashboard);
-
-        // await entityManager.createQueryBuilder().delete().from(DatasetColumn).where('id not in (:...ids)', { ids }).andWhere('dataset_id = :dataset', { dataset: dashboard.datasets[0].id }).execute();
-
         for (const columnRequest of dashboardUpdate.colums) {
           const userDatasetColumn = await entityManager.findOne(UserDatasetColumn, columnRequest.id);
 
-          // const userDatasetColumn = new UserDatasetColumn();
-          // userDatasetColumn.userDataset = userDataset;
-          // userDatasetColumn.column = column;
           userDatasetColumn.role = columnRequest.role;
           userDatasetColumn.index = columnRequest.index;
           userDatasetColumn.name = columnRequest.name;
           userDatasetColumn.removed = columnRequest.removed;
+          userDatasetColumn.aggregate = columnRequest.aggregate;
 
           await entityManager.save(UserDatasetColumn, userDatasetColumn);
         }
 
-        // const dashboard = new Dashboard();
-        // dashboard.userDatasets = [userDataset];
         dashboard.goalType = dashboardUpdate.goal;
         dashboard.goalPurpose = dashboardUpdate.purpose;
         dashboard.name = dashboardUpdate.name;

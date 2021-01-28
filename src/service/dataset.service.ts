@@ -15,6 +15,7 @@ import ClickHouseService from './clickhouse.service';
 import { Dashboard } from '../entity/Dashboard';
 import { User } from '../entity/User';
 import UserService from './user.service';
+import { ExpandedType } from 'compassql/build/src/query/expandedtype';
 
 export default class DatasetService {
   private static singletonInstance: DatasetService;
@@ -443,6 +444,10 @@ export default class DatasetService {
                 column.isCount ? `SELECT COUNT(*) AS "value" FROM juno.${name}` : `SELECT COUNT(DISTINCT ${column.name}) AS "value" FROM juno.${name}`
               );
 
+              if (distinctValues[0]['value'] === 0 || (column.expandedType === ExpandedType.QUANTITATIVE && distinctValues[0]['value'] === 1)) {
+                continue;
+              }
+
               const newColumn = new DatasetColumn();
               newColumn.name = column.name;
               newColumn.type = column.typeName;
@@ -563,6 +568,11 @@ export default class DatasetService {
         ['zip', 'code'],
         ['post', 'code'],
         ['postal', 'code'],
+        ['iso', 'code'],
+        'continent',
+        'location',
+        'iso2',
+        'iso3',
       ];
 
       for (const geoType of GEO_TYPES) {

@@ -3,17 +3,26 @@ import { recommend } from 'compassql/build/src/recommend';
 import { mapLeaves, ResultTree } from 'compassql/build/src/result';
 import { EncodingQuery, FieldQuery } from 'compassql/build/src/query/encoding';
 import { FacetedUnitSpec, TopLevel } from 'vega-lite/build/src/spec';
+import { InlineData } from 'vega-lite/build/src/data';
 
 import * as datalib from 'datalib';
 import {
+  DashboardGoal,
+  DashboardInterface,
+  DashboardRecommendation,
   DatasetColumnExpandedType,
   DatasetColumnInterface,
   DatasetColumnRole,
   DatasetColumnType,
   DatasetInterface,
   DatasetRecommendation,
+  DatasetRecommendationMultipleLines,
+  DatasetRecommendationMultipleLinesAxis,
+  DatasetRecommendationMultipleLinesData,
   DatasetSpecEncoding,
   DatasetSpecEncodings,
+  generateId,
+  JunoMark,
   UserVisLiteracy,
 } from '@junoapp/common';
 
@@ -36,7 +45,7 @@ export default class DashboardRecommendationService {
 
   private constructor() {}
 
-  public async getChartRecommendation(datasetId: number): Promise<DatasetRecommendation[]> {
+  public async getChartRecommendation(datasetId: number): Promise<DashboardRecommendation> {
     const dashboard = await DashboardService.instance.getById(datasetId);
 
     const newData: { dimensions: DatasetColumnInterface[]; measures: DatasetColumnInterface[]; spec: DatasetSpecEncoding[][] } = {
@@ -87,7 +96,7 @@ export default class DashboardRecommendationService {
       return a.distinctValues - b.distinctValues;
     });
 
-    console.log(newColumns);
+    console.log({ newColumns }, newData.dimensions);
 
     for (const dimension of newData.dimensions) {
       if (dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low && newColumns.length >= 2 && dimension.id === newColumns[1].id) {
@@ -135,13 +144,14 @@ export default class DashboardRecommendationService {
       }
     }
 
-    const chartSpecs: DatasetRecommendation[] = [];
+    let chartSpecs: DatasetRecommendation[] = [];
 
     for (const spec of newData.spec) {
       try {
         const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.userDatasets[0].dataset, spec);
 
         chartSpecs.push({
+          id: generateId(),
           ...data,
           key: this.encodingFieldQuery(spec[0]).field.toString(),
           value: this.encodingFieldQuery(spec[1]).field.toString(),
@@ -155,6 +165,320 @@ export default class DashboardRecommendationService {
       }
     }
 
+    chartSpecs = this.aggroupLinesCharts(chartSpecs, dashboard);
+
+    for (let i = 0; i < chartSpecs.length; i++) {
+      const chartSpec = chartSpecs[i];
+
+      if (chartSpec.mark === 'line' && !chartSpec.multipleLines && chartSpec.dimension.type === DatasetColumnType.DATE && dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low) {
+        const spec = newData.spec.find((s) => s[0].column.name === chartSpec.dimension.name && s[1].column.name === chartSpec.measure.name);
+
+        if (spec) {
+          chartSpecs.splice(i + 1, 0, {
+            ...chartSpec,
+            id: generateId(),
+            mark: 'heatmap',
+            data: {
+              values: await this.getDataFromClickHouse(dashboard.userDatasets[0].dataset, spec, true),
+            },
+          });
+        }
+      }
+    }
+
+    return this.paginateChartRecommendation(chartSpecs, dashboard);
+  }
+
+  private paginateChartRecommendation(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface): DashboardRecommendation {
+    const measures: string[] = [...new Set(chartSpecs.map((c) => c.measure.name))];
+
+    const dashboardRecommendation: DashboardRecommendation = {
+      name: dashboard.name,
+      pages: [],
+    };
+
+    console.log(chartSpecs.length, measures.length, measures);
+
+    const measuresSplitted: string[][] = [];
+    for (const measure of measures) {
+      measuresSplitted.push(measure.split('_'));
+    }
+
+    const measureMap: Record<string, { name: string; values: string[] }> = {};
+    for (const measure of measuresSplitted) {
+      for (const piece of measure) {
+        if (piece.length >= 4) {
+          if (!measureMap[piece]) {
+            measureMap[piece] = {
+              name: piece,
+              values: [],
+            };
+          }
+
+          measureMap[piece].values.push(measure.join('_'));
+        }
+      }
+    }
+
+    const measureArray = Object.values(measureMap).sort((a, b) => a.values.length - b.values.length);
+
+    console.log(measureArray);
+
+    for (const measure1 of measureArray) {
+      for (let i = measure1.values.length - 1; i >= 0; i--) {
+        const value1 = measure1.values[i];
+
+        for (const measure2 of measureArray) {
+          if (measure1.name !== measure2.name) {
+            if (measure2.values.includes(value1)) {
+              measure1.values.splice(i, 1);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    let t = 0;
+    for (let i = measureArray.length - 1; i >= 0; i--) {
+      if (measureArray[i].values.length === 0) {
+        measureArray.splice(i, 1);
+      } else {
+        t += measureArray[i].values.length;
+      }
+    }
+
+    measureArray.reverse();
+
+    console.log(measureArray, measureArray.length, t);
+
+    if ((!dashboard.goalType || (dashboard.goalType && dashboard.goalType !== DashboardGoal.Awareness)) && chartSpecs.length > 10 && measures.length >= 3) {
+      for (const measurePage of measureArray) {
+        let charts = [];
+
+        for (const measure of measurePage.values) {
+          charts.push(...chartSpecs.filter((chart) => chart.measure.name === measure));
+        }
+
+        dashboardRecommendation.pages.push({
+          name: measurePage.values.length === 1 ? measurePage.values[0] : measurePage.name,
+          charts,
+        });
+      }
+    } else {
+      dashboardRecommendation.pages.push({
+        name: dashboard.name,
+        charts: chartSpecs,
+      });
+    }
+
+    return dashboardRecommendation;
+  }
+
+  private aggroupLinesCharts(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface): DatasetRecommendation[] {
+    const lines = chartSpecs.filter((chart) => chart.mark === 'line');
+
+    if (lines.length > 1 && dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low) {
+      const keys = [...new Set(lines.map((line) => line.key))];
+
+      console.log({ keys });
+
+      if (keys.length === 1) {
+        const values = [...new Set(chartSpecs.filter((chart) => chart.mark === 'line' && !chart.multipleLines).map((chart) => chart.value))];
+
+        console.log({ values });
+
+        if (values.length > 1) {
+          // do {
+          const valuesSpecs = chartSpecs.filter((chart) => chart.key === keys[0]);
+
+          // console.log({ valuesSpecs });
+
+          let newValues: Record<string, DatasetRecommendationMultipleLinesData> = {};
+
+          for (const valueSpec of valuesSpecs) {
+            for (const value of (valueSpec.data as InlineData).values as Array<any>) {
+              const key = value[valueSpec.key];
+
+              if (!newValues[key]) {
+                newValues[key] = {
+                  name: key,
+                  values: {},
+                };
+              }
+
+              const v = value[valueSpec.value];
+
+              newValues[key].values[valueSpec.value] = isNaN(+v) ? undefined : +v;
+            }
+          }
+
+          const newValuesArray = Object.values(newValues);
+          const valuesMap: Record<string, number[]> = {};
+
+          for (const newValue of newValuesArray) {
+            for (const key of Object.keys(newValue.values)) {
+              if (!valuesMap[key]) {
+                valuesMap[key] = [];
+              }
+
+              valuesMap[key].push(newValue.values[key]);
+            }
+          }
+
+          let biggestValue = Number.MIN_SAFE_INTEGER;
+          // let secondBiggestValue = Number.MIN_SAFE_INTEGER;
+
+          const maxMap: Record<string, number> = {};
+          for (const key of Object.keys(valuesMap)) {
+            const max = Math.max(...valuesMap[key]);
+
+            maxMap[key] = max;
+
+            if (max > biggestValue) {
+              biggestValue = max;
+            }
+          }
+
+          console.log({ maxMap });
+
+          const axisMap: DatasetRecommendationMultipleLinesAxis = {};
+          let countSkipped = 0;
+          for (const key of Object.keys(maxMap)) {
+            if (maxMap[key] === biggestValue) {
+              axisMap[key] = 'left';
+            } else {
+              const percent = maxMap[key] / biggestValue;
+
+              // console.log(key, percent);
+
+              if (percent > 0.01) {
+                axisMap[key] = percent > 0.2 || dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.High ? 'left' : 'right';
+              } else {
+                countSkipped++;
+              }
+            }
+          }
+
+          // if (countSkipped < 10) {
+          //   break;
+          // }
+
+          console.log({ axisMap });
+
+          const addedSpecs = chartSpecs.filter((v) => v.mark === 'line' && axisMap[v.value] && !v.multipleLines);
+
+          // if (addedSpecs.length === 0) {
+          //   break;
+          // }
+
+          const addedIds = addedSpecs.map((spec) => spec.id);
+          const removedSpecs = chartSpecs.filter((v) => !addedIds.includes(v.id));
+
+          // console.log({ addedSpecs, removedSpecs });
+
+          const multipleLines: DatasetRecommendationMultipleLines = {
+            data: newValuesArray,
+            specs: JSON.parse(JSON.stringify(addedSpecs)),
+            axis: axisMap,
+          };
+
+          const newSpecs = [addedSpecs[0], ...removedSpecs];
+
+          newSpecs[0].multipleLines = multipleLines;
+
+          chartSpecs = newSpecs;
+          // } while (true);
+        }
+      } else {
+        const values = [...new Set(chartSpecs.filter((chart) => chart.mark === 'line').map((chart) => chart.value))];
+
+        console.log({ values });
+
+        if (values.length > 0) {
+          for (const value of values) {
+            const keysSpecs = chartSpecs.filter((chart) => chart.mark === 'line' && chart.value === value);
+
+            let newValues: Record<string, DatasetRecommendationMultipleLinesData> = {};
+
+            for (const keySpec of keysSpecs) {
+              for (const value of (keySpec.data as InlineData).values as Array<any>) {
+                const key = value[keySpec.key];
+
+                if (!newValues[key]) {
+                  newValues[key] = {
+                    name: key,
+                    values: {},
+                  };
+                }
+
+                const v = value[keySpec.value];
+
+                newValues[key].values[keySpec.key] = isNaN(+v) ? undefined : +v;
+              }
+            }
+
+            const newValuesArray = Object.values(newValues);
+            const valuesMap: Record<string, number[]> = {};
+
+            for (const newValue of newValuesArray) {
+              for (const key of Object.keys(newValue.values)) {
+                if (!valuesMap[key]) {
+                  valuesMap[key] = [];
+                }
+
+                valuesMap[key].push(newValue.values[key]);
+              }
+            }
+
+            let biggestValue = Number.MIN_SAFE_INTEGER;
+            const maxMap: Record<string, number> = {};
+            for (const key of Object.keys(valuesMap)) {
+              const max = Math.max(...valuesMap[key]);
+
+              maxMap[key] = max;
+
+              if (max > biggestValue) {
+                biggestValue = max;
+              }
+            }
+
+            const axisMap: DatasetRecommendationMultipleLinesAxis = {};
+            for (const key of Object.keys(maxMap)) {
+              if (maxMap[key] === biggestValue) {
+                axisMap[key] = 'left';
+              } else {
+                const percent = maxMap[key] / biggestValue;
+
+                if (percent > 0.01) {
+                  axisMap[key] = percent > 0.2 || dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.High ? 'left' : 'right';
+                }
+              }
+            }
+
+            console.log(axisMap);
+
+            const addedSpecs = chartSpecs.filter((v) => v.value === value && axisMap[v.key] && !v.multipleLines);
+            const addedIds = addedSpecs.map((spec) => spec.id);
+            const removedSpecs = chartSpecs.filter((v) => !addedIds.includes(v.id));
+
+            console.log({ addedSpecs, removedSpecs });
+
+            const multipleLines: DatasetRecommendationMultipleLines = {
+              data: newValuesArray,
+              specs: JSON.parse(JSON.stringify(addedSpecs)),
+              axis: axisMap,
+            };
+
+            const newSpecs = [addedSpecs[0], ...removedSpecs];
+
+            newSpecs[0].multipleLines = multipleLines;
+
+            chartSpecs = newSpecs;
+          }
+        }
+      }
+    }
     return chartSpecs;
   }
 
@@ -162,7 +486,7 @@ export default class DashboardRecommendationService {
     return encoding as FieldQuery;
   }
 
-  public async getSpec(dataset: DatasetInterface, spec: DatasetSpecEncoding[]): Promise<TopLevel<FacetedUnitSpec>> {
+  private async getSpec(dataset: DatasetInterface, spec: DatasetSpecEncoding[]): Promise<TopLevel<FacetedUnitSpec>> {
     let queryResult = await this.getDataFromClickHouse(dataset, spec);
 
     if (this.encodingFieldQuery(spec[0]).bin) {
@@ -217,7 +541,7 @@ export default class DashboardRecommendationService {
     }));
   }
 
-  private async getDataFromClickHouse(dataset: DatasetInterface, spec: DatasetSpecEncoding[]) {
+  private async getDataFromClickHouse(dataset: DatasetInterface, spec: DatasetSpecEncoding[], byDay = false) {
     const dimension = this.encodingFieldQuery(spec[0]);
     const measure = this.encodingFieldQuery(spec[1]);
 
@@ -227,29 +551,22 @@ export default class DashboardRecommendationService {
     let query: string;
 
     if (column.type === DatasetColumnType.DATE) {
-      const dataInfo: Object[] = await this.clickHouseService.query(
-        `
-          SELECT
-            min(${column.name}) AS "min",
-            max(${column.name}) AS "max",
-            datediff('year', min(${column.name}), max(${column.name})) AS "year",
-            datediff('quarter', min(${column.name}), max(${column.name})) AS "quarter",
-            datediff('month', min(${column.name}), max(${column.name})) AS "month",
-            datediff('week', min(${column.name}), max(${column.name})) AS "week",
-            datediff('day', min(${column.name}), max(${column.name})) AS "day"
-          FROM juno.${dataset.tableName}
-          `
-      );
-
       let format = '%Y';
-      if (dataInfo[0]['year'] >= 5) {
-        format = '%Y';
-      } else if (dataInfo[0]['month'] >= 5) {
-        format = '%Y/%m';
-      } else if (dataInfo[0]['week'] >= 5) {
-        format = '%Y/%m-%V';
-      } else if (dataInfo[0]['day'] >= 5) {
+
+      if (byDay) {
         format = '%Y/%m/%d';
+      } else {
+        const dateInfo: Object[] = await this.getDateInfo(column, dataset);
+
+        if (dateInfo[0]['year'] >= 5) {
+          format = '%Y';
+        } else if (dateInfo[0]['month'] >= 5) {
+          format = '%Y/%m';
+        } else if (dateInfo[0]['week'] >= 5) {
+          format = '%Y/%m-%V';
+        } else if (dateInfo[0]['day'] >= 5) {
+          format = '%Y/%m/%d';
+        }
       }
 
       const columnName = `formatDateTime(${column.name}, '${format}')`;
@@ -272,5 +589,21 @@ export default class DashboardRecommendationService {
     console.log(query);
 
     return this.clickHouseService.query(query);
+  }
+
+  private getDateInfo(column: DatasetColumnInterface, dataset: DatasetInterface): Promise<Object[]> {
+    return this.clickHouseService.query(
+      `
+          SELECT
+            min(${column.name}) AS "min",
+            max(${column.name}) AS "max",
+            datediff('year', min(${column.name}), max(${column.name})) AS "year",
+            datediff('quarter', min(${column.name}), max(${column.name})) AS "quarter",
+            datediff('month', min(${column.name}), max(${column.name})) AS "month",
+            datediff('week', min(${column.name}), max(${column.name})) AS "week",
+            datediff('day', min(${column.name}), max(${column.name})) AS "day"
+          FROM juno.${dataset.tableName}
+          `
+    );
   }
 }
