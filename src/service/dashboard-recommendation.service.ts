@@ -19,6 +19,7 @@ import {
   DatasetRecommendationMultipleLines,
   DatasetRecommendationMultipleLinesAxis,
   DatasetRecommendationMultipleLinesData,
+  DatasetSchemaAggregateFunction,
   DatasetSpecEncoding,
   DatasetSpecEncodings,
   generateId,
@@ -167,11 +168,18 @@ export default class DashboardRecommendationService {
 
     chartSpecs = this.aggroupLinesCharts(chartSpecs, dashboard);
 
+    await this.addHeatmaps(chartSpecs, dashboard, newData.spec);
+    await this.addHeadText(chartSpecs, dashboard);
+
+    return this.paginateChartRecommendation(chartSpecs, dashboard);
+  }
+
+  private async addHeatmaps(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface, newDataSpec: DatasetSpecEncoding[][]): Promise<void> {
     for (let i = 0; i < chartSpecs.length; i++) {
       const chartSpec = chartSpecs[i];
 
       if (chartSpec.mark === 'line' && !chartSpec.multipleLines && chartSpec.dimension.type === DatasetColumnType.DATE && dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low) {
-        const spec = newData.spec.find((s) => s[0].column.name === chartSpec.dimension.name && s[1].column.name === chartSpec.measure.name);
+        const spec = newDataSpec.find((s) => s[0].column.name === chartSpec.dimension.name && s[1].column.name === chartSpec.measure.name);
 
         if (spec) {
           chartSpecs.splice(i + 1, 0, {
@@ -185,8 +193,59 @@ export default class DashboardRecommendationService {
         }
       }
     }
+  }
 
-    return this.paginateChartRecommendation(chartSpecs, dashboard);
+  private async addHeadText(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface): Promise<void> {
+    const measures = dashboard.userDatasets[0].columns.filter((d) => d.role === DatasetColumnRole.MEASURE && !d.removed && !d.column.isCount);
+    const dateDimension = dashboard.userDatasets[0].columns.find((c) => c.role === DatasetColumnRole.DIMENSION && c.column.type === DatasetColumnType.DATE);
+
+    if (dateDimension && measures.length < 6) {
+      for (const measure of measures) {
+        let total = 0;
+
+        if (measure.aggregate === DatasetSchemaAggregateFunction.None) {
+          const queryResult = await this.clickHouseService.query(
+            `SELECT ${measure.column.name} FROM juno.${dashboard.userDatasets[0].dataset.tableName} ORDER BY ${dateDimension.column.name} DESC LIMIT 1`
+          );
+
+          total = queryResult[0][measure.column.name];
+        } else if (measure.aggregate === DatasetSchemaAggregateFunction.Mean) {
+          const queryResult = await this.clickHouseService.query(`SELECT avg(${measure.column.name}) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
+
+          total = queryResult[0][measure.column.name];
+        } else if (measure.aggregate === DatasetSchemaAggregateFunction.Sum) {
+          const queryResult = await this.clickHouseService.query(`SELECT sum(${measure.column.name}) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
+
+          total = queryResult[0][measure.column.name];
+        } else if (measure.aggregate === DatasetSchemaAggregateFunction.Max) {
+          const queryResult = await this.clickHouseService.query(`SELECT max(${measure.column.name}) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
+
+          total = queryResult[0][measure.column.name];
+        } else if (measure.aggregate === DatasetSchemaAggregateFunction.Min) {
+          const queryResult = await this.clickHouseService.query(`SELECT max(${measure.column.name}) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
+
+          total = queryResult[0][measure.column.name];
+        } else if (measure.aggregate === DatasetSchemaAggregateFunction.Median) {
+          const queryResult = await this.clickHouseService.query(`SELECT median(${measure.column.name}) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
+
+          total = queryResult[0][measure.column.name];
+        }
+
+        chartSpecs.splice(0, 0, {
+          id: generateId(),
+          mark: 'text',
+          key: dateDimension.name,
+          value: measure.name,
+          dimension: dateDimension.column,
+          measure: measure.column,
+          trimValues: false,
+          data: {
+            values: [+total],
+          },
+          encoding: {},
+        });
+      }
+    }
   }
 
   private paginateChartRecommendation(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface): DashboardRecommendation {
@@ -546,7 +605,7 @@ export default class DashboardRecommendationService {
     const measure = this.encodingFieldQuery(spec[1]);
 
     const column = spec[0].column;
-    const valueColumnName = measure.field === 'count' ? `count(*)` : `sum(${measure.field})`;
+    const valueColumnName = measure.field === 'count' ? `count(*)` : `max(${measure.field})`;
 
     let query: string;
 
