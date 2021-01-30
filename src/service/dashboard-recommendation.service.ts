@@ -159,6 +159,7 @@ export default class DashboardRecommendationService {
           dimension: spec[0].column,
           measure: spec[1].column,
           trimValues: spec[0].trimValues,
+          mark: data.mark === 'point' ? 'bar' : data.mark,
         });
       } catch (error) {
         console.log(error);
@@ -182,14 +183,20 @@ export default class DashboardRecommendationService {
         const spec = newDataSpec.find((s) => s[0].column.name === chartSpec.dimension.name && s[1].column.name === chartSpec.measure.name);
 
         if (spec) {
-          chartSpecs.splice(i + 1, 0, {
-            ...chartSpec,
-            id: generateId(),
-            mark: 'heatmap',
-            data: {
-              values: await this.getDataFromClickHouse(dashboard.userDatasets[0].dataset, spec, true),
-            },
-          });
+          const daysOfWeeek = await this.clickHouseService.query(
+            `SELECT DISTINCT toDayOfWeek(${chartSpec.dimension.name}) as "${chartSpec.dimension.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`
+          );
+
+          if (+daysOfWeeek[0][chartSpec.dimension.name] > 1) {
+            chartSpecs.splice(i + 1, 0, {
+              ...chartSpec,
+              id: generateId(),
+              mark: 'heatmap',
+              data: {
+                values: await this.getDataFromClickHouse(dashboard.userDatasets[0].dataset, spec, true),
+              },
+            });
+          }
         }
       }
     }
@@ -197,18 +204,23 @@ export default class DashboardRecommendationService {
 
   private async addHeadText(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface): Promise<void> {
     const measures = dashboard.userDatasets[0].columns.filter((d) => d.role === DatasetColumnRole.MEASURE && !d.removed && !d.column.isCount);
-    const dateDimension = dashboard.userDatasets[0].columns.find((c) => c.role === DatasetColumnRole.DIMENSION && c.column.type === DatasetColumnType.DATE);
 
-    if (dateDimension && measures.length < 6) {
+    if (measures.length < 6) {
       for (const measure of measures) {
         let total = 0;
 
         if (measure.aggregate === DatasetSchemaAggregateFunction.None) {
-          const queryResult = await this.clickHouseService.query(
-            `SELECT ${measure.column.name} FROM juno.${dashboard.userDatasets[0].dataset.tableName} ORDER BY ${dateDimension.column.name} DESC LIMIT 1`
-          );
+          const dateDimension = dashboard.userDatasets[0].columns.find((c) => c.role === DatasetColumnRole.DIMENSION && c.column.type === DatasetColumnType.DATE);
 
-          total = queryResult[0][measure.column.name];
+          if (dateDimension) {
+            const queryResult = await this.clickHouseService.query(
+              `SELECT ${measure.column.name} FROM juno.${dashboard.userDatasets[0].dataset.tableName} ORDER BY ${dateDimension.column.name} DESC LIMIT 1`
+            );
+
+            total = queryResult[0][measure.column.name];
+          } else {
+            continue;
+          }
         } else if (measure.aggregate === DatasetSchemaAggregateFunction.Mean) {
           const queryResult = await this.clickHouseService.query(`SELECT avg(${measure.column.name}) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
 
@@ -234,9 +246,9 @@ export default class DashboardRecommendationService {
         chartSpecs.splice(0, 0, {
           id: generateId(),
           mark: 'text',
-          key: dateDimension.name,
+          key: measure.name,
           value: measure.name,
-          dimension: dateDimension.column,
+          dimension: measure.column,
           measure: measure.column,
           trimValues: false,
           data: {
@@ -245,6 +257,27 @@ export default class DashboardRecommendationService {
           encoding: {},
         });
       }
+    }
+
+    const onlyHaveCount = dashboard.userDatasets[0].columns.filter((d) => d.role === DatasetColumnRole.MEASURE && !d.removed);
+
+    if (onlyHaveCount.length === 1 && onlyHaveCount[0].column.isCount) {
+      const measure = onlyHaveCount[0];
+      const queryResult = await this.clickHouseService.query(`SELECT count(*) as "count" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
+
+      chartSpecs.splice(0, 0, {
+        id: generateId(),
+        mark: 'text',
+        key: measure.name,
+        value: measure.name,
+        dimension: measure.column,
+        measure: measure.column,
+        trimValues: false,
+        data: {
+          values: [+queryResult[0]['count']],
+        },
+        encoding: {},
+      });
     }
   }
 
@@ -580,23 +613,39 @@ export default class DashboardRecommendationService {
     const measure = this.encodingFieldQuery(spec[1]);
 
     const minMax = await this.clickHouseService.query(`SELECT min(${dimension.field}) as "min", max(${dimension.field}) as "max" FROM juno.${dataset.tableName}`);
+    const min = minMax[0]['min'];
 
-    const newData = {};
-    const bins = datalib.bins({ min: minMax[0]['min'], max: minMax[0]['max'], maxbins: 10 });
+    const numberOfBins = 10;
+    const length = queryResult.length;
+    const delta = Math.ceil(length / numberOfBins);
 
-    for (const queryItem of queryResult) {
-      const binIndex = bins.value(queryItem[dimension.field.toString()]);
+    const bins: Record<number, number> = {};
 
-      if (!newData[binIndex]) {
-        newData[binIndex] = 0;
+    let start = min;
+
+    for (let i = 0; i < numberOfBins; i++) {
+      let arr = [];
+      let max = 0;
+      for (let j = i * delta; j < (i + 1) * delta; j++) {
+        if (j >= length) {
+          break;
+        }
+
+        arr = [...arr, queryResult[j][measure.field.toString()]];
+
+        if (queryResult[j][dimension.field.toString()] > max) {
+          max = queryResult[j][dimension.field.toString()];
+        }
       }
 
-      newData[binIndex] += queryItem[measure.field.toString()];
+      bins[`${start}-${max}`] = arr.reduce((prev, curr) => prev + curr, 0);
+
+      start = max;
     }
 
-    return Object.keys(newData).map((d) => ({
+    return Object.keys(bins).map((d) => ({
       [dimension.field.toString()]: d,
-      [measure.field.toString()]: newData[d],
+      [measure.field.toString()]: bins[d],
     }));
   }
 
@@ -605,35 +654,35 @@ export default class DashboardRecommendationService {
     const measure = this.encodingFieldQuery(spec[1]);
 
     const column = spec[0].column;
-    const valueColumnName = measure.field === 'count' ? `count(*)` : `max(${measure.field})`;
+    const valueColumnName = measure.field === 'count' ? `count(*)` : `sum(${measure.field})`;
 
     let query: string;
 
     if (column.type === DatasetColumnType.DATE) {
       let format = '%Y';
 
-      if (byDay) {
-        format = '%Y/%m/%d';
-      } else {
-        const dateInfo: Object[] = await this.getDateInfo(column, dataset);
+      // if (byDay) {
+      format = '%Y/%m/%d';
+      // } else {
+      //   const dateInfo: Object[] = await this.getDateInfo(column, dataset);
 
-        if (dateInfo[0]['year'] >= 5) {
-          format = '%Y';
-        } else if (dateInfo[0]['month'] >= 5) {
-          format = '%Y/%m';
-        } else if (dateInfo[0]['week'] >= 5) {
-          format = '%Y/%m-%V';
-        } else if (dateInfo[0]['day'] >= 5) {
-          format = '%Y/%m/%d';
-        }
-      }
+      //   if (dateInfo[0]['year'] >= 12) {
+      //     format = '%Y';
+      //   } else if (dateInfo[0]['month'] >= 12) {
+      //     format = '%Y/%m';
+      //   } else if (dateInfo[0]['week'] >= 12) {
+      //     format = '%Y/%m-%V';
+      //   } else if (dateInfo[0]['day'] >= 12) {
+      //     format = '%Y/%m/%d';
+      //   }
+      // }
 
       const columnName = `formatDateTime(${column.name}, '${format}')`;
 
       query = `SELECT ${columnName} AS "${dimension.field}", ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
     } else {
       if (spec[0].trimValues) {
-        query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${measure.field} ASC LIMIT 30`;
+        query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${measure.field} DESC LIMIT 30`;
       } else {
         if (spec.length === 3) {
           const column = this.encodingFieldQuery(spec[2]);
