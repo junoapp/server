@@ -39,6 +39,12 @@ export default class DatasetController {
     response.send();
   }
 
+  public async connectDatabase(request: Request, response: Response): Promise<void> {
+    const dataset = await datasetService.connectDatabase(request.body);
+
+    response.send(dataset);
+  }
+
   public async delete(request: Request, response: Response): Promise<void> {
     await datasetService.delete(+request.params.id);
 

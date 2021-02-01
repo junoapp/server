@@ -1,0 +1,124 @@
+subject, Name
+BORPER, Bordetella pertussis
+BRRBUR, Borrelia burgdorferi (Lyme)
+CAM_SP, Campylobacter
+CHLPSI, Chlamydia psittaci
+CHLTRA, Chlamydia trachomatis
+CRS_SP, Cryptosporidium
+ENTHIS, Entamoeba histolytica
+GIA_SP, Giardia
+HAEINF, Haemophilus influenzae
+LIS_SP, Listeria monocytogenes
+MENI, Neisseria meningitidis
+NEIGON, Neisseria gonorrhoeae
+PNEU, Streptococcus pneumoniae
+SALM, Salmonella
+SHIG, Shigella
+STRPYO, Streptococcus pyogenes
+TBEV, Tick-borne encephalitis
+V_ADV, Adenovirus
+V_HAV, Hepatitis A virus
+V_HCV, Hepatitis C virus
+V_HTV, Hantavirus
+V_PIV, Parainfluenza
+V_RSV, Respiratory Syncytial Virus
+V_RTV, Rotavirus
+VTEC, Escherichia coli (VTEC)
+WNF, West Nile virus
+YERENT, Yersinia enterocolitica
+AGAL, S. agalactiae
+AMR, Antibiotic resistant Pseudomonas and Acinetobacter
+ANAP, Anaplasma (Ehrlichia)
+BAR_SP, Bartonella
+BORPAR, Bordetella parapertussis
+BORR, Borrelia burgdorferi
+BOTU, C. botulinum and perfringens and pseudotuberculosis
+BRU_SP, Brucella
+BRUC, Brucella
+BURK, Burkholderia cepacia
+CAMP, Campylobacter
+CAN_SP, Candida
+CHIK, Chikungunya virus
+CHLPNE, C. pneumoniae
+CHOL, V. cholerae and V. parahaemolyticus
+CLSDIF, C. difficile
+COLBUR, C. burnetii
+CONG, Congenital infections
+CONSYPH, T. pallidum congenital
+CRY_SP, Cryptococcus
+CYC_SP, Cyclospora
+DENGUE, Dengue virus
+DIFF, C. difficile
+DIPH, C. diphtheriae and ulcerans
+ENC, Enterococcus
+ENTE, Enterovirus
+ESBL, ESBL + carbapenemase producing Enterobacteriaceae
+ESCCOL, Escherichia coli (VTEC)
+GONOAMR, N. gonorrhoeae
+HANTA, Hantavirus
+HELI, H. pylori
+HELPYL, H. pylori
+HEPA, Hepatitis A virus
+HEPB, Hepatitis B virus
+HEPC, Hepatitis C virus
+HEPD, Hepatitis D virus
+HEPE, Hepatitis E virus
+INFL, Influenza virus
+INFLANTIVIR, Influenza virus
+INFLVIRAGGR, Influenza virus
+LEGI, Legionella
+LEGPNE, L. pneumophila
+LEI_SP, Leishmania
+LEP_SP, Leptospira
+LGV, C. trachomatis
+LIST, Listeria monocytogenes
+MEAS, Measles virus
+MUMP, Mumps virus
+MYC_SP, Mycobacterium
+MYCO, Mycosis
+MYCOISO, M. tuberculosis genotyping (ECDC project)
+MYCTUB, M. tuberculosis
+MYPPNE, M. pneumoniae
+NEIMEN, N. meningitidis
+NORO, Norovirus
+PAS_SP, Pasteurella
+PERT, Bordetella pertussis and parapertussis
+PLA_SP, Plasmodium
+POLI, Poliovirus
+QFEV, C. burnetii
+RABI, Rabies virus
+RESP, Respiratory pathogens
+RICK, Rickettsia
+ROTA, Rotavirus
+RUBE, Rubella virus
+SAL_SP, Salmonella
+SARS, Severe Acute Respiratory Syndrome
+SHI_SP, Shigella
+STAAUR, S. aureus
+STAU, S. aureus
+STRBHB, S. agalactiae
+STRPNE, S. pneumoniae
+STRPYOG, S. pyogenes
+SYPH, T. pallidum
+TOP_SP, Toxoplasma
+TREPAL, T. pallidum
+TUBE, Mycobacterium
+TUBECULT, Mycobacterium identification
+TUBEGENO, M. tuberculosis genotyping (Brussels)
+V_ENV, Enterovirus
+V_HBV, Hepatitis B virus
+V_HEV, Hepatitis E virus
+V_HSV, Herpes simplex virus
+V_INF, Influenza virus
+V_MEV, Measles virus
+V_MTV, Human metapneumovirus
+V_MUV, Mumps virus
+V_NWA, Norovirus
+V_PAV, Human Papillomavirus
+V_PVV, Parvovirus B19
+V_RBV, Rubella virus
+V_RHI, Rhinovirus
+YELF, Yellow fever virus
+YERS, Y
+V_VZV,V_VZV
+ZIKA,Zika

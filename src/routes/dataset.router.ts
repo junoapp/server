@@ -47,6 +47,11 @@ export const datasetRoutes: Router[] = [
     action: datasetController.updateColumns,
   },
   {
+    path: 'dataset/dataset/database/connect',
+    method: 'post',
+    action: datasetController.connectDatabase,
+  },
+  {
     path: 'dataset/:id',
     method: 'delete',
     action: datasetController.delete,

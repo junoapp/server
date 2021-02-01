@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as datalib from 'datalib';
 import { parse, unparse } from 'papaparse';
 import { format, parse as dateParse } from 'date-fns';
-import { DashboardInterface, DashboardUpdate, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType, DatasetInterface } from '@junoapp/common';
+import { DashboardInterface, DashboardUpdate, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType, DatasetConnectionDatabase, DatasetInterface } from '@junoapp/common';
 
 import { Dataset } from '../entity/Dataset';
 import { DatasetColumn } from '../entity/DatasetColumn';
@@ -133,6 +133,8 @@ export default class DatasetService {
       }
     });
   }
+
+  public async connectDatabase(form: DatasetConnectionDatabase): Promise<DatasetInterface> {}
 
   private async insertClickhouse(dataset: Dataset): Promise<boolean> {
     const fileData = fs.createReadStream(dataset.path);
