@@ -171,6 +171,7 @@ export default class DashboardRecommendationService {
 
     await this.addHeatmaps(chartSpecs, dashboard, newData.spec);
     await this.addHeadText(chartSpecs, dashboard);
+    await this.addMapchart(chartSpecs, dashboard);
 
     return this.paginateChartRecommendation(chartSpecs, dashboard);
   }
@@ -278,6 +279,36 @@ export default class DashboardRecommendationService {
         },
         encoding: {},
       });
+    }
+  }
+
+  private async addMapchart(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface): Promise<void> {
+    const geoColumns = dashboard.userDatasets[0].columns.filter((column) => column.column.expandedType === DatasetColumnExpandedType.GEO);
+    const measures = dashboard.userDatasets[0].columns.filter((column) => column.role === DatasetColumnRole.MEASURE);
+
+    if (geoColumns.length > 0) {
+      const dimension = geoColumns[0];
+
+      for (const measure of measures) {
+        const toRemove = chartSpecs.findIndex((spec) => spec.key === dimension.name && spec.value === measure.name);
+
+        chartSpecs.splice(toRemove, 1);
+        chartSpecs.splice(0, 0, {
+          id: generateId(),
+          mark: 'geoshape',
+          key: dimension.name,
+          value: measure.name,
+          dimension: dimension.column,
+          measure: measure.column,
+          trimValues: false,
+          data: {
+            values: await this.clickHouseService.query(
+              `SELECT ${dimension.column.name}, count(*) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName} GROUP BY ${dimension.column.name}`
+            ),
+          },
+          encoding: {},
+        });
+      }
     }
   }
 
