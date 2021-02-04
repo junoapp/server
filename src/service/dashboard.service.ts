@@ -56,6 +56,8 @@ export default class DashboardService {
       .leftJoinAndSelect('columns.column', 'column')
       .leftJoinAndSelect('userDatasets.dataset', 'dataset')
       .leftJoinAndSelect('userDatasets.owner', 'owner')
+      .leftJoinAndSelect('owner.preferences', 'preferences')
+      .leftJoinAndSelect('preferences.chartTypes', 'chartTypes')
       .leftJoinAndSelect('dataset.columns', 'datasetColumns')
       .where('dashboard.id = :id', { id })
       .orderBy('columns.role', 'ASC')

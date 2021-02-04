@@ -1,10 +1,11 @@
-import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
-import { DashboardInterface, UserDisability, UserInterface, UserVisLiteracy } from '@junoapp/common';
+import { Column, Entity, JoinColumn, OneToMany, OneToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { DashboardInterface, UserDisability, UserInterface, UserPreferencesInterface, UserVisLiteracy } from '@junoapp/common';
 
 import { BasicColumns } from '../utils/basic-columns';
 import { Dashboard } from './Dashboard';
 import { Dataset } from './Dataset';
 import { UserDataset } from './UserDataset';
+import { UserPreferences } from './UserPreferences';
 
 @Entity()
 export class User extends BasicColumns implements UserInterface {
@@ -25,4 +26,7 @@ export class User extends BasicColumns implements UserInterface {
 
   @OneToMany((type) => UserDataset, (columns) => columns.owner)
   userDatasets: UserDataset[];
+
+  @OneToOne((type) => UserPreferences, (preference) => preference.user)
+  preferences: UserPreferencesInterface;
 }

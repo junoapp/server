@@ -41,6 +41,7 @@
     "pg": "^8.3.0",
     "reflect-metadata": "^0.1.10",
     "typeorm": "0.2.25",
+    "vega": "^5.19.1",
     "vega-typings": "^0.19.2",
     "webpack-node-externals": "^2.5.2",
     "winston": "^3.3.3"

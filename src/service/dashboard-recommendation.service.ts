@@ -4,8 +4,11 @@ import { mapLeaves, ResultTree } from 'compassql/build/src/result';
 import { EncodingQuery, FieldQuery } from 'compassql/build/src/query/encoding';
 import { FacetedUnitSpec, TopLevel } from 'vega-lite/build/src/spec';
 import { InlineData } from 'vega-lite/build/src/data';
+import * as fs from 'fs';
+import * as path from 'path';
+import { FieldDefBase } from 'vega-lite/build/src/channeldef';
+import { Field } from 'vega';
 
-import * as datalib from 'datalib';
 import {
   DashboardGoal,
   DashboardInterface,
@@ -24,6 +27,8 @@ import {
   DatasetSpecEncodings,
   generateId,
   JunoMark,
+  PreferenceType,
+  UserInterface,
   UserVisLiteracy,
 } from '@junoapp/common';
 
@@ -55,7 +60,7 @@ export default class DashboardRecommendationService {
       spec: [],
     };
 
-    let newColumns: DatasetColumnInterface[] = [];
+    let stackedDimensions: DatasetColumnInterface[] = [];
 
     for (const userColumn of dashboard.userDatasets[0].columns) {
       if (userColumn.removed) {
@@ -67,12 +72,14 @@ export default class DashboardRecommendationService {
           if (userColumn.column.distinctValues > 1 && userColumn.column.distinctValues < 500) {
             newData.dimensions.push(userColumn.column);
 
-            newColumns.push(userColumn.column);
+            stackedDimensions.push(userColumn.column);
           }
         } else {
           if (userColumn.column.expandedType === DatasetColumnExpandedType.GEO) {
             if (userColumn.column.distinctValues > 1 && userColumn.column.distinctValues < 30) {
               newData.dimensions.push(userColumn.column);
+
+              stackedDimensions.push(userColumn.column);
             }
           } else {
             newData.dimensions.push(userColumn.column);
@@ -83,7 +90,7 @@ export default class DashboardRecommendationService {
       }
     }
 
-    newColumns = newColumns.filter((a) => a.distinctValues < 10).sort((a, b) => a.distinctValues - b.distinctValues);
+    stackedDimensions = stackedDimensions.filter((a) => a.distinctValues < 10).sort((a, b) => a.distinctValues - b.distinctValues);
 
     newData.dimensions.sort((a, b) => {
       if (a.type === DatasetColumnType.DATE) {
@@ -97,14 +104,62 @@ export default class DashboardRecommendationService {
       return a.distinctValues - b.distinctValues;
     });
 
-    console.log({ newColumns }, newData.dimensions);
+    if (
+      dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low &&
+      (!dashboard.userDatasets[0].owner.preferences || dashboard.userDatasets[0].owner.preferences.stacked) &&
+      stackedDimensions.length >= 2
+    ) {
+      const mainDimension = stackedDimensions[0];
+
+      stackedDimensions.splice(0, 1);
+
+      for (const dimension of stackedDimensions) {
+        for (const measure of newData.measures) {
+          const type1 = mainDimension.expandedType === DatasetColumnExpandedType.GEO ? DatasetColumnExpandedType.NOMINAL : mainDimension.expandedType;
+          const type2 = dimension.expandedType === DatasetColumnExpandedType.GEO ? DatasetColumnExpandedType.NOMINAL : dimension.expandedType;
+
+          const encodings: DatasetSpecEncoding[] = [
+            {
+              channel: '?',
+              field: mainDimension.name,
+              type: type1,
+              bin: false,
+              column: mainDimension,
+              trimValues: false,
+            },
+            {
+              channel: '?',
+              field: measure.name,
+              aggregate: 'sum',
+              type: measure.expandedType as ExpandedType,
+              scale: {},
+              column: measure,
+            },
+          ];
+
+          encodings.push({
+            channel: 'color',
+            field: dimension.name,
+            type: type2,
+            bin: false,
+            column: dimension,
+            trimValues: false,
+          });
+
+          newData.spec.push(encodings);
+        }
+      }
+    }
+
+    const binValues = dashboard.userDatasets[0].owner.preferences ? dashboard.userDatasets[0].owner.preferences.binValues : 50;
+    const clampStrings = dashboard.userDatasets[0].owner.preferences ? dashboard.userDatasets[0].owner.preferences.clampStrings : 30;
 
     for (const dimension of newData.dimensions) {
-      if (dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low && newColumns.length >= 2 && dimension.id === newColumns[1].id) {
-        continue;
-      }
-
       for (const measure of newData.measures) {
+        if (newData.spec.find((s) => (s[0].column.name === dimension.name || (s[2] && s[2].column.name === dimension.name)) && s[1].column.name === measure.name)) {
+          continue;
+        }
+
         const type = dimension.expandedType === DatasetColumnExpandedType.GEO ? DatasetColumnExpandedType.NOMINAL : dimension.expandedType;
 
         const encodings: DatasetSpecEncoding[] = [
@@ -112,9 +167,9 @@ export default class DashboardRecommendationService {
             channel: '?',
             field: dimension.name,
             type,
-            bin: type === DatasetColumnExpandedType.QUANTITATIVE && dimension.distinctValues > 50,
+            bin: type === DatasetColumnExpandedType.QUANTITATIVE && dimension.distinctValues > binValues,
             column: dimension,
-            trimValues: dimension.type === DatasetColumnType.STRING && dimension.expandedType !== DatasetColumnExpandedType.GEO && dimension.distinctValues > 30,
+            trimValues: dimension.type === DatasetColumnType.STRING && dimension.expandedType !== DatasetColumnExpandedType.GEO && dimension.distinctValues > clampStrings,
           },
           {
             channel: '?',
@@ -126,17 +181,6 @@ export default class DashboardRecommendationService {
           },
         ];
 
-        if (dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low && newColumns.length >= 2 && dimension.id === newColumns[0].id) {
-          encodings.push({
-            channel: 'color',
-            field: newColumns[1].name,
-            type: newColumns[1].expandedType as ExpandedType,
-            bin: false,
-            column: newColumns[1],
-            trimValues: false,
-          });
-        }
-
         if (dimension.type === DatasetColumnType.DATE) {
           this.encodingFieldQuery(encodings[0]).timeUnit = 'year';
         }
@@ -147,9 +191,33 @@ export default class DashboardRecommendationService {
 
     let chartSpecs: DatasetRecommendation[] = [];
 
+    const owner = dashboard.userDatasets[0].owner;
+
     for (const spec of newData.spec) {
       try {
-        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.userDatasets[0].dataset, spec);
+        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.userDatasets[0].dataset, spec, owner);
+
+        let mark = data.mark === 'point' ? 'bar' : data.mark;
+
+        if (owner.preferences) {
+          const type = owner.preferences.chartTypes.find((chartType) => {
+            const fieldX = (data.encoding.x as FieldDefBase<Field>).field.toString();
+            const fieldY = (data.encoding.y as FieldDefBase<Field>).field.toString();
+
+            console.log({ fieldX, fieldY });
+
+            const columnX = dashboard.userDatasets[0].columns.find((c) => c.column.name === fieldX);
+            const columnY = dashboard.userDatasets[0].columns.find((c) => c.column.name === fieldY);
+
+            return columnX.column.type.toLocaleLowerCase() === chartType.typeX.toLowerCase() && columnY.column.type.toLocaleLowerCase() === chartType.typeY.toLowerCase();
+          });
+
+          if (type.chart === PreferenceType.Bar) {
+            mark = 'bar';
+          } else if (type.chart === PreferenceType.Line) {
+            mark = 'line';
+          }
+        }
 
         chartSpecs.push({
           id: generateId(),
@@ -159,7 +227,7 @@ export default class DashboardRecommendationService {
           dimension: spec[0].column,
           measure: spec[1].column,
           trimValues: spec[0].trimValues,
-          mark: data.mark === 'point' ? 'bar' : data.mark,
+          mark,
         });
       } catch (error) {
         console.log(error);
@@ -167,7 +235,9 @@ export default class DashboardRecommendationService {
       }
     }
 
-    chartSpecs = this.aggroupLinesCharts(chartSpecs, dashboard);
+    if (!dashboard.userDatasets[0].owner.preferences || dashboard.userDatasets[0].owner.preferences.multiline) {
+      chartSpecs = this.aggroupLinesCharts(chartSpecs, dashboard);
+    }
 
     await this.addHeatmaps(chartSpecs, dashboard, newData.spec);
     await this.addHeadText(chartSpecs, dashboard);
@@ -194,7 +264,7 @@ export default class DashboardRecommendationService {
               id: generateId(),
               mark: 'heatmap',
               data: {
-                values: await this.getDataFromClickHouse(dashboard.userDatasets[0].dataset, spec, true),
+                values: await this.getDataFromClickHouse(dashboard.userDatasets[0].dataset, spec, dashboard.userDatasets[0].owner, true),
               },
             });
           }
@@ -206,18 +276,17 @@ export default class DashboardRecommendationService {
   private async addHeadText(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface): Promise<void> {
     const measures = dashboard.userDatasets[0].columns.filter((d) => d.role === DatasetColumnRole.MEASURE && !d.removed && !d.column.isCount);
 
-    if (measures.length < 6) {
+    if (measures.length <= 6) {
       for (const measure of measures) {
         let total = 0;
 
         if (measure.aggregate === DatasetSchemaAggregateFunction.None) {
+          // continue;
           const dateDimension = dashboard.userDatasets[0].columns.find((c) => c.role === DatasetColumnRole.DIMENSION && c.column.type === DatasetColumnType.DATE);
-
           if (dateDimension) {
             const queryResult = await this.clickHouseService.query(
-              `SELECT ${measure.column.name} FROM juno.${dashboard.userDatasets[0].dataset.tableName} ORDER BY ${dateDimension.column.name} DESC LIMIT 1`
+              `SELECT sum(${measure.column.name}) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName} GROUP BY ${dateDimension.column.name} ORDER BY ${dateDimension.column.name} DESC LIMIT 1`
             );
-
             total = queryResult[0][measure.column.name];
           } else {
             continue;
@@ -284,43 +353,119 @@ export default class DashboardRecommendationService {
 
   private async addMapchart(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface): Promise<void> {
     const geoColumns = dashboard.userDatasets[0].columns.filter((column) => column.column.expandedType === DatasetColumnExpandedType.GEO);
-    const measures = dashboard.userDatasets[0].columns.filter((column) => column.role === DatasetColumnRole.MEASURE);
+    const measures = dashboard.userDatasets[0].columns.filter((column) => column.role === DatasetColumnRole.MEASURE && !column.removed);
 
-    if (geoColumns.length > 0) {
-      const dimension = geoColumns[0];
+    let added = false;
 
-      for (const measure of measures) {
-        const toRemove = chartSpecs.findIndex((spec) => spec.key === dimension.name && spec.value === measure.name);
+    if (geoColumns.length > 1) {
+      const hasLat = geoColumns.find((column) => column.name === 'latitude');
+      const hasLng = geoColumns.find((column) => column.name === 'longitude');
+      const dimensions = geoColumns.filter((column) => column.name !== 'latitude' && column.name !== 'longitude').sort((a, b) => b.column.distinctValues - a.column.distinctValues);
 
-        chartSpecs.splice(toRemove, 1);
+      if (dimensions.length > 0 && hasLat && hasLng) {
+        const dimension = dimensions[0];
+        const measure = measures[0];
+
+        const data = await this.clickHouseService.query(`
+            SELECT ${dimension.column.name}, latitude, longitude , sum(${measure.column.name}) as "${measure.name}" from juno.${dashboard.userDatasets[0].dataset.tableName} group by ${dimension.column.name}, latitude, longitude order by ${dimension.column.name} asc;
+          `);
+
         chartSpecs.splice(0, 0, {
           id: generateId(),
-          mark: 'geoshape',
+          mark: 'geo-lat-lng',
           key: dimension.name,
           value: measure.name,
           dimension: dimension.column,
           measure: measure.column,
           trimValues: false,
           data: {
-            values: await this.clickHouseService.query(
-              `SELECT ${dimension.column.name}, count(*) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName} GROUP BY ${dimension.column.name}`
-            ),
+            values: data,
           },
           encoding: {},
         });
+
+        added = true;
+      }
+    }
+
+    if (geoColumns.length > 0 && !added) {
+      const files = fs.readdirSync(path.join(__dirname, '../geojson/'));
+      const matchMap: Record<string, Record<string, { total: number; matched: number }>> = {};
+
+      for (const filePath of files) {
+        const file = JSON.parse(fs.readFileSync(path.join(__dirname, '../geojson/' + filePath), 'utf8'));
+
+        matchMap[filePath] = {};
+
+        for (const dimension of geoColumns) {
+          const dimensionValues = await this.clickHouseService.query(`SELECT DISTINCT ${dimension.column.name} FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
+
+          matchMap[filePath][dimension.column.name] = {
+            total: dimensionValues.length,
+            matched: 0,
+          };
+
+          for (const value of dimensionValues) {
+            if (file.features.some((feature) => feature.properties.name === value[dimension.column.name])) {
+              matchMap[filePath][dimension.column.name].matched++;
+            }
+          }
+        }
+      }
+
+      let dimensionColumn: string;
+      let geoFile: string;
+
+      for (const file of Object.keys(matchMap)) {
+        for (const column of Object.keys(matchMap[file])) {
+          if (matchMap[file][column].total === matchMap[file][column].matched) {
+            geoFile = file;
+            dimensionColumn = column;
+
+            break;
+          }
+        }
+
+        if (dimensionColumn) {
+          break;
+        }
+      }
+
+      if (dimensionColumn && geoFile) {
+        const dimension = geoColumns.find((d) => d.column.name === dimensionColumn);
+        for (const measure of measures) {
+          const toRemove = chartSpecs.findIndex((spec) => spec.key === dimension.name && spec.value === measure.name);
+
+          chartSpecs.splice(toRemove, 1);
+          chartSpecs.splice(0, 0, {
+            id: generateId(),
+            mark: 'geoshape',
+            key: dimension.name,
+            value: measure.name,
+            dimension: dimension.column,
+            measure: measure.column,
+            trimValues: false,
+            data: {
+              values: await this.clickHouseService.query(
+                `SELECT ${dimension.column.name}, count(*) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName} GROUP BY ${dimension.column.name}`
+              ),
+            },
+            encoding: {},
+            geoFile,
+          });
+        }
       }
     }
   }
 
   private paginateChartRecommendation(chartSpecs: DatasetRecommendation[], dashboard: DashboardInterface): DashboardRecommendation {
     const measures: string[] = [...new Set(chartSpecs.map((c) => c.measure.name))];
+    const chartsWithoutHeadtexts = chartSpecs.filter((chart) => chart.mark !== 'text');
 
     const dashboardRecommendation: DashboardRecommendation = {
       name: dashboard.name,
       pages: [],
     };
-
-    console.log(chartSpecs.length, measures.length, measures);
 
     const measuresSplitted: string[][] = [];
     for (const measure of measures) {
@@ -344,8 +489,6 @@ export default class DashboardRecommendationService {
     }
 
     const measureArray = Object.values(measureMap).sort((a, b) => a.values.length - b.values.length);
-
-    console.log(measureArray);
 
     for (const measure1 of measureArray) {
       for (let i = measure1.values.length - 1; i >= 0; i--) {
@@ -373,9 +516,7 @@ export default class DashboardRecommendationService {
 
     measureArray.reverse();
 
-    console.log(measureArray, measureArray.length, t);
-
-    if ((!dashboard.goalType || (dashboard.goalType && dashboard.goalType !== DashboardGoal.Awareness)) && chartSpecs.length > 10 && measures.length >= 3) {
+    if ((!dashboard.goalType || (dashboard.goalType && dashboard.goalType !== DashboardGoal.Awareness)) && chartsWithoutHeadtexts.length > 10 && measures.length >= 3) {
       for (const measurePage of measureArray) {
         let charts = [];
 
@@ -404,18 +545,12 @@ export default class DashboardRecommendationService {
     if (lines.length > 1 && dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.Low) {
       const keys = [...new Set(lines.map((line) => line.key))];
 
-      console.log({ keys });
-
       if (keys.length === 1) {
         const values = [...new Set(chartSpecs.filter((chart) => chart.mark === 'line' && !chart.multipleLines).map((chart) => chart.value))];
-
-        console.log({ values });
 
         if (values.length > 1) {
           // do {
           const valuesSpecs = chartSpecs.filter((chart) => chart.key === keys[0]);
-
-          // console.log({ valuesSpecs });
 
           let newValues: Record<string, DatasetRecommendationMultipleLinesData> = {};
 
@@ -432,7 +567,9 @@ export default class DashboardRecommendationService {
 
               const v = value[valueSpec.value];
 
-              newValues[key].values[valueSpec.value] = isNaN(+v) ? undefined : +v;
+              if (!isNaN(+v)) {
+                newValues[key].values[valueSpec.value] = +v;
+              }
             }
           }
 
@@ -463,8 +600,6 @@ export default class DashboardRecommendationService {
             }
           }
 
-          console.log({ maxMap });
-
           const axisMap: DatasetRecommendationMultipleLinesAxis = {};
           let countSkipped = 0;
           for (const key of Object.keys(maxMap)) {
@@ -473,10 +608,12 @@ export default class DashboardRecommendationService {
             } else {
               const percent = maxMap[key] / biggestValue;
 
-              // console.log(key, percent);
-
               if (percent > 0.01) {
-                axisMap[key] = percent > 0.2 || dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.High ? 'left' : 'right';
+                axisMap[key] = percent > 0.2 ? 'left' : 'right';
+
+                if (dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.High || (dashboard.userDatasets[0].owner.preferences && !dashboard.userDatasets[0].owner.preferences.rightAxis)) {
+                  axisMap[key] = 'left';
+                }
               } else {
                 countSkipped++;
               }
@@ -487,8 +624,6 @@ export default class DashboardRecommendationService {
           //   break;
           // }
 
-          console.log({ axisMap });
-
           const addedSpecs = chartSpecs.filter((v) => v.mark === 'line' && axisMap[v.value] && !v.multipleLines);
 
           // if (addedSpecs.length === 0) {
@@ -497,8 +632,6 @@ export default class DashboardRecommendationService {
 
           const addedIds = addedSpecs.map((spec) => spec.id);
           const removedSpecs = chartSpecs.filter((v) => !addedIds.includes(v.id));
-
-          // console.log({ addedSpecs, removedSpecs });
 
           const multipleLines: DatasetRecommendationMultipleLines = {
             data: newValuesArray,
@@ -515,8 +648,6 @@ export default class DashboardRecommendationService {
         }
       } else {
         const values = [...new Set(chartSpecs.filter((chart) => chart.mark === 'line').map((chart) => chart.value))];
-
-        console.log({ values });
 
         if (values.length > 0) {
           for (const value of values) {
@@ -537,7 +668,9 @@ export default class DashboardRecommendationService {
 
                 const v = value[keySpec.value];
 
-                newValues[key].values[keySpec.key] = isNaN(+v) ? undefined : +v;
+                if (!isNaN(+v)) {
+                  newValues[key].values[keySpec.key] = +v;
+                }
               }
             }
 
@@ -574,18 +707,18 @@ export default class DashboardRecommendationService {
                 const percent = maxMap[key] / biggestValue;
 
                 if (percent > 0.01) {
-                  axisMap[key] = percent > 0.2 || dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.High ? 'left' : 'right';
+                  axisMap[key] = percent > 0.2 ? 'left' : 'right';
+
+                  if (dashboard.userDatasets[0].owner.visLiteracy !== UserVisLiteracy.High || (dashboard.userDatasets[0].owner.preferences && !dashboard.userDatasets[0].owner.preferences.rightAxis)) {
+                    axisMap[key] = 'left';
+                  }
                 }
               }
             }
 
-            console.log(axisMap);
-
             const addedSpecs = chartSpecs.filter((v) => v.value === value && axisMap[v.key] && !v.multipleLines);
             const addedIds = addedSpecs.map((spec) => spec.id);
             const removedSpecs = chartSpecs.filter((v) => !addedIds.includes(v.id));
-
-            console.log({ addedSpecs, removedSpecs });
 
             const multipleLines: DatasetRecommendationMultipleLines = {
               data: newValuesArray,
@@ -609,8 +742,8 @@ export default class DashboardRecommendationService {
     return encoding as FieldQuery;
   }
 
-  private async getSpec(dataset: DatasetInterface, spec: DatasetSpecEncoding[]): Promise<TopLevel<FacetedUnitSpec>> {
-    let queryResult = await this.getDataFromClickHouse(dataset, spec);
+  private async getSpec(dataset: DatasetInterface, spec: DatasetSpecEncoding[], user: UserInterface): Promise<TopLevel<FacetedUnitSpec>> {
+    let queryResult = await this.getDataFromClickHouse(dataset, spec, user);
 
     if (this.encodingFieldQuery(spec[0]).bin) {
       queryResult = await this.binValues(spec, dataset, queryResult);
@@ -680,7 +813,7 @@ export default class DashboardRecommendationService {
     }));
   }
 
-  private async getDataFromClickHouse(dataset: DatasetInterface, spec: DatasetSpecEncoding[], byDay = false) {
+  private async getDataFromClickHouse(dataset: DatasetInterface, spec: DatasetSpecEncoding[], user: UserInterface, byDay = false) {
     const dimension = this.encodingFieldQuery(spec[0]);
     const measure = this.encodingFieldQuery(spec[1]);
 
@@ -688,6 +821,8 @@ export default class DashboardRecommendationService {
     const valueColumnName = measure.field === 'count' ? `count(*)` : `sum(${measure.field})`;
 
     let query: string;
+
+    const clampStrings = user.preferences ? user.preferences.clampStrings : 30;
 
     if (column.type === DatasetColumnType.DATE) {
       let format = '%Y';
@@ -713,7 +848,7 @@ export default class DashboardRecommendationService {
       query = `SELECT ${columnName} AS "${dimension.field}", ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${dimension.field} ASC`;
     } else {
       if (spec[0].trimValues) {
-        query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${measure.field} DESC LIMIT 30`;
+        query = `SELECT ${dimension.field}, ${valueColumnName} AS "${measure.field}" FROM juno.${dataset.tableName} GROUP BY ${dimension.field} ORDER BY ${measure.field} DESC LIMIT ${clampStrings}`;
       } else {
         if (spec.length === 3) {
           const column = this.encodingFieldQuery(spec[2]);
@@ -724,8 +859,6 @@ export default class DashboardRecommendationService {
         }
       }
     }
-
-    console.log(query);
 
     return this.clickHouseService.query(query);
   }

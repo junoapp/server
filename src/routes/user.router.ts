@@ -24,4 +24,9 @@ export const userRoutes: Router[] = [
     method: 'delete',
     action: userController.delete,
   },
+  {
+    path: 'user/preferences/:id',
+    method: 'post',
+    action: userController.savePreferences,
+  },
 ];

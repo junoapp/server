@@ -15,6 +15,7 @@ import { User } from './entity/User';
 import { Dashboard } from './entity/Dashboard';
 import { UserDataset } from './entity/UserDataset';
 import { UserDatasetColumn } from './entity/UserDatasetColumn';
+import { UserPreferences, UserPreferencesChartType } from './entity/UserPreferences';
 
 const PORT = process.env.PORT || 3001;
 
@@ -30,7 +31,7 @@ createConnection({
   database: 'juno',
   synchronize: true,
   logging: false,
-  entities: [Dataset, DatasetColumn, User, Dashboard, UserDataset, UserDatasetColumn],
+  entities: [Dataset, DatasetColumn, User, Dashboard, UserDataset, UserDatasetColumn, UserPreferences, UserPreferencesChartType],
   migrations: ['src/migration/**/*.ts'],
   subscribers: ['src/subscriber/**/*.ts'],
   cli: {
@@ -46,6 +47,7 @@ createConnection({
     app.use(bodyParser.json());
     app.use(cors());
     app.use(morgan('dev'));
+    app.use(express.static('geojson'));
 
     logger.info('Loading routes...');
     AppRoutes.forEach((route) => {

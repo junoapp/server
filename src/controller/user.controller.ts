@@ -27,4 +27,10 @@ export default class UserController {
 
     response.send();
   }
+
+  public async savePreferences(request: Request, response: Response): Promise<void> {
+    await userService.savePreferences(+request.params.id, request.body);
+
+    response.send();
+  }
 }

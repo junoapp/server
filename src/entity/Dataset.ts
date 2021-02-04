@@ -1,4 +1,4 @@
-import { Column, Entity, PrimaryGeneratedColumn, OneToMany, ManyToOne } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn, OneToMany, ManyToOne, OneToOne } from 'typeorm';
 import { DashboardInterface, DatasetInterface, UserInterface } from '@junoapp/common';
 
 import { BasicColumns } from '../utils/basic-columns';
@@ -9,6 +9,7 @@ import { User } from './User';
 import { UserDatasetInterface } from '@junoapp/common/dist/entity/UserDataset';
 import { UserDatasetColumnInterface } from '@junoapp/common/dist/entity/UserDatasetColumn';
 import { UserDatasetColumn } from './UserDatasetColumn';
+import { UserPreferences } from './UserPreferences';
 
 @Entity()
 export class Dataset extends BasicColumns implements DatasetInterface {
