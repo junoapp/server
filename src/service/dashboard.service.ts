@@ -2,7 +2,7 @@ import { getManager, EntityManager } from 'typeorm';
 import * as fs from 'fs';
 import * as datalib from 'datalib';
 import { parse, unparse } from 'papaparse';
-import { format, parse as dateParse } from 'date-fns';
+import { addDays, format, parse as dateParse } from 'date-fns';
 import { DashboardInsert, DashboardInterface, DashboardUpdate, DatasetColumnExpandedType, DatasetColumnRole, DatasetColumnType, DatasetInterface } from '@junoapp/common';
 
 import { Dataset } from '../entity/Dataset';
@@ -34,7 +34,64 @@ export default class DashboardService {
     return getManager();
   }
 
+  private rnd(min: number, max: number): number {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
   public async getAll(userId: number): Promise<DashboardInterface[]> {
+    // let startDate = new Date(2021, 1, 1, 10, 0, 0);
+    // const stores = ['REC', 'SAO', 'RIO', 'CWB'];
+    // const vehicleClasses = ['A', 'B', 'D', 'D+'];
+
+    // const data = {
+    //   lor: {},
+    //   occupancy: {},
+    //   pick_up: {},
+    //   ticket_price: {},
+    // };
+
+    // for (let day = 0; day < 500; day++) {
+    //   for (const store of stores) {
+    //     for (const vehicleClass of vehicleClasses) {
+    //       if (!data.lor[`${store}-${vehicleClass}`]) {
+    //         data.lor[`${store}-${vehicleClass}`] = this.rnd(1, 45);
+    //       }
+
+    //       if (!data.occupancy[`${store}-${vehicleClass}`]) {
+    //         data.occupancy[`${store}-${vehicleClass}`] = this.rnd(0, 100);
+    //       }
+
+    //       if (!data.pick_up[`${store}-${vehicleClass}`]) {
+    //         data.pick_up[`${store}-${vehicleClass}`] = this.rnd(0, 100);
+    //       }
+
+    //       if (!data.ticket_price[`${store}-${vehicleClass}`]) {
+    //         data.ticket_price[`${store}-${vehicleClass}`] = this.rnd(50, 500);
+    //       }
+
+    //       this.entityManager.query(`
+    //         INSERT INTO public.vehicles ("date", store, vehicle_class, lor, occupancy, pick_up, ticket_price)
+    //         VALUES(
+    //           '${format(startDate, 'yyyy-MM-dd HH:mm:ss')}',
+    //           '${store}',
+    //           '${vehicleClass}',
+    //           ${data.lor[`${store}-${vehicleClass}`]},
+    //           ${data.occupancy[`${store}-${vehicleClass}`]},
+    //           ${data.pick_up[`${store}-${vehicleClass}`]},
+    //           ${data.ticket_price[`${store}-${vehicleClass}`]}
+    //         );
+    //       `);
+
+    //       data.lor[`${store}-${vehicleClass}`] = Math.max(this.rnd(data.lor[`${store}-${vehicleClass}`] - 2, data.lor[`${store}-${vehicleClass}`] + 2), 1);
+    //       data.occupancy[`${store}-${vehicleClass}`] = Math.max(this.rnd(data.occupancy[`${store}-${vehicleClass}`] - 10, data.occupancy[`${store}-${vehicleClass}`] + 10), 0);
+    //       data.pick_up[`${store}-${vehicleClass}`] = Math.max(this.rnd(data.pick_up[`${store}-${vehicleClass}`] - 10, data.pick_up[`${store}-${vehicleClass}`] + 10), 0);
+    //       data.ticket_price[`${store}-${vehicleClass}`] = Math.max(this.rnd(data.ticket_price[`${store}-${vehicleClass}`] - 40, data.ticket_price[`${store}-${vehicleClass}`] + 50), 50);
+    //     }
+    //   }
+
+    //   startDate = addDays(startDate, 1);
+    // }
+
     return this.entityManager
       .createQueryBuilder(Dashboard, 'dashboard')
       .leftJoinAndSelect('dashboard.userDatasets', 'userDatasets')

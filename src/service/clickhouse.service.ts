@@ -32,10 +32,9 @@ export default class ClickHouseService {
     this.clickhouse = new ClickHouse({
       url: ClickHouseService.CLICK_HOUSE_URL,
       port: ClickHouseService.CLICK_HOUSE_PORT,
-      basicAuth: {
-        username: 'default',
-        password: '',
-      },
+      username: 'default',
+      password: '',
+      basicAuth: null,
       isUseGzip: true,
       format: 'csv',
       config: {

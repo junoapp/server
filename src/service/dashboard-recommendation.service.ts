@@ -475,7 +475,8 @@ export default class DashboardRecommendationService {
     const measureMap: Record<string, { name: string; values: string[] }> = {};
     for (const measure of measuresSplitted) {
       for (const piece of measure) {
-        if (piece.length >= 4) {
+        // TODO: REMOVE STOP WORDS
+        if (piece.length >= 3) {
           if (!measureMap[piece]) {
             measureMap[piece] = {
               name: piece,

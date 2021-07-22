@@ -26,7 +26,7 @@ createConnection({
   type: 'postgres',
   host: 'localhost',
   port: 5432,
-  username: 'pricing',
+  username: 'juno',
   password: 'test',
   database: 'juno',
   synchronize: true,
