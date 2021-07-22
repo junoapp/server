@@ -28,6 +28,7 @@ import {
   generateId,
   JunoMark,
   PreferenceType,
+  UserDatasetInterface,
   UserInterface,
   UserVisLiteracy,
 } from '@junoapp/common';
@@ -195,7 +196,9 @@ export default class DashboardRecommendationService {
 
     for (const spec of newData.spec) {
       try {
-        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.userDatasets[0].dataset, spec, owner);
+        const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.userDatasets[0].dataset, spec, owner, dashboard.userDatasets[0]);
+
+        console.log(data);
 
         let mark = data.mark === 'point' ? 'bar' : data.mark;
 
@@ -226,8 +229,12 @@ export default class DashboardRecommendationService {
           value: this.encodingFieldQuery(spec[1]).field.toString(),
           dimension: spec[0].column,
           measure: spec[1].column,
+          secondDimension: spec.length === 3 ? spec[2].column : null,
           trimValues: spec[0].trimValues,
           mark,
+          userDimension: dashboard.userDatasets[0].columns.find((c) => c.name === spec[0].column.name),
+          userMeasure: dashboard.userDatasets[0].columns.find((c) => c.name === spec[1].column.name),
+          userSecondDimension: spec.length === 3 ? dashboard.userDatasets[0].columns.find((c) => c.name === spec[2].column.name) : null,
         });
       } catch (error) {
         console.log(error);
@@ -264,7 +271,7 @@ export default class DashboardRecommendationService {
               id: generateId(),
               mark: 'heatmap',
               data: {
-                values: await this.getDataFromClickHouse(dashboard.userDatasets[0].dataset, spec, dashboard.userDatasets[0].owner, true),
+                values: await this.getDataFromClickHouse(dashboard.userDatasets[0].dataset, spec, dashboard.userDatasets[0].owner),
               },
             });
           }
@@ -304,7 +311,7 @@ export default class DashboardRecommendationService {
 
           total = queryResult[0][measure.column.name];
         } else if (measure.aggregate === DatasetSchemaAggregateFunction.Min) {
-          const queryResult = await this.clickHouseService.query(`SELECT max(${measure.column.name}) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
+          const queryResult = await this.clickHouseService.query(`SELECT min(${measure.column.name}) as "${measure.column.name}" FROM juno.${dashboard.userDatasets[0].dataset.tableName}`);
 
           total = queryResult[0][measure.column.name];
         } else if (measure.aggregate === DatasetSchemaAggregateFunction.Median) {
@@ -743,8 +750,8 @@ export default class DashboardRecommendationService {
     return encoding as FieldQuery;
   }
 
-  private async getSpec(dataset: DatasetInterface, spec: DatasetSpecEncoding[], user: UserInterface): Promise<TopLevel<FacetedUnitSpec>> {
-    let queryResult = await this.getDataFromClickHouse(dataset, spec, user);
+  private async getSpec(dataset: DatasetInterface, spec: DatasetSpecEncoding[], user: UserInterface, userDataset?: UserDatasetInterface): Promise<TopLevel<FacetedUnitSpec>> {
+    let queryResult = await this.getDataFromClickHouse(dataset, spec, user, userDataset);
 
     if (this.encodingFieldQuery(spec[0]).bin) {
       queryResult = await this.binValues(spec, dataset, queryResult);
@@ -814,12 +821,44 @@ export default class DashboardRecommendationService {
     }));
   }
 
-  private async getDataFromClickHouse(dataset: DatasetInterface, spec: DatasetSpecEncoding[], user: UserInterface, byDay = false) {
+  private async getDataFromClickHouse(dataset: DatasetInterface, spec: DatasetSpecEncoding[], user: UserInterface, userDataset?: UserDatasetInterface) {
     const dimension = this.encodingFieldQuery(spec[0]);
     const measure = this.encodingFieldQuery(spec[1]);
 
+    // avg
+    // sum
+    // min
+    // max
+    // median
+
+    let aggregation = 'sum';
+
+    if (userDataset) {
+      const userColumn = userDataset.columns.find((c) => c.name === measure.field.toString());
+
+      if (userColumn) {
+        aggregation = userColumn.aggregate.toLowerCase();
+
+        const map = {
+          min: 'min',
+          mean: 'avg',
+          sum: 'sum',
+          max: 'max',
+          median: 'median',
+        };
+
+        if (!map[aggregation]) {
+          aggregation = 'sum';
+        } else {
+          aggregation = map[aggregation];
+        }
+
+        console.log(aggregation);
+      }
+    }
+
     const column = spec[0].column;
-    const valueColumnName = measure.field === 'count' ? `count(*)` : `sum(${measure.field})`;
+    const valueColumnName = measure.field === 'count' ? `count(*)` : `${aggregation}(${measure.field})`;
 
     let query: string;
 
