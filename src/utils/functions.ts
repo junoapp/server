@@ -3,12 +3,17 @@ export const convertName = (name: string): string => {
     return 'teste';
   }
 
+  if (name === '') {
+    return 'idx';
+  }
+
   return name
     .trim()
     .split('.')[0]
     .split(',')[0]
     .replace(/\s+/g, '_')
-    .replace(/[^\w+\d+]/g, '');
+    .replace(/[^\w+\d+]/g, '')
+    .replace('Index', 'idx');
 };
 
 export const getFilename = (name: string): [string, string] => {

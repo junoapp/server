@@ -112,6 +112,7 @@ export default class DatasetService {
       })
       .catch((error) => {
         console.log(error);
+        console.log(error.body);
       });
   }
 
@@ -173,7 +174,7 @@ export default class DatasetService {
               }
             }
 
-            const dates: number[][] = [[], [], []];
+            const dates: string[][] = [[], [], []];
             const times: string[] = [];
 
             let timeFormat = '';
@@ -192,6 +193,10 @@ export default class DatasetService {
                 let part1: string;
                 let part2: string;
                 let part3: string;
+
+                if (String(date).includes(':')) {
+                  continue;
+                }
 
                 if (String(date).includes('/')) {
                   const [date1, date2, date3] = date.split('/');
@@ -217,9 +222,9 @@ export default class DatasetService {
 
                 newDateFields[dateField] = true;
 
-                dates[0].push(+part1);
-                dates[1].push(+part2);
-                dates[2].push(+part3);
+                dates[0].push(part1);
+                dates[1].push(part2);
+                dates[2].push(part3);
 
                 times.push(time);
 
@@ -321,13 +326,13 @@ export default class DatasetService {
             let newData: any[] = data.data;
 
             if (dates[0].length > 0) {
-              const year = dates.findIndex((date) => date.every((d) => d.toString().length === 2 || d.toString().length === 4));
-              const month = dates.findIndex((date) => date.every((d) => (d.toString().length === 1 || d.toString().length === 2) && d >= 0 && d <= 12));
+              const year = dates.findIndex((date) => date.every((d) => d.length === 2 || d.length === 4));
+              const month = dates.findIndex((date) => date.every((d) => (d.length === 1 || d.length === 2) && +d >= 0 && +d <= 12));
               const day = [0, 1, 2].find((d) => d !== year && d !== month);
 
-              const year4Digits = dates[year].every((d) => d.toString().length === 4);
-              const month2Digits = dates[month].every((d) => d.toString().length === 2);
-              const day2Digits = dates[day].every((d) => d.toString().length === 2);
+              const year4Digits = dates[year].every((d) => d.length === 4);
+              const month2Digits = dates[month].some((d) => d.length === 2);
+              const day2Digits = dates[day].some((d) => d.length === 2);
 
               const dateFormat = [
                 { order: year, format: year4Digits ? 'yyyy' : 'yy' },
@@ -356,6 +361,20 @@ export default class DatasetService {
                     item[dateField] = null;
                   }
                 }
+
+                for (const moneyField of moneyFields) {
+                  if (item[moneyField] && item[moneyField].replace) {
+                    item[moneyField] = Number(item[moneyField].replace(/[^0-9.-]+/g, ''));
+                  }
+                }
+
+                newData.push(item);
+              }
+            } else if (moneyFields.length > 0) {
+              newData = [];
+
+              for (let i = 0; i < data.data.length; i++) {
+                const item = data.data[i];
 
                 for (const moneyField of moneyFields) {
                   if (item[moneyField] && item[moneyField].replace) {
@@ -464,6 +483,8 @@ export default class DatasetService {
             resolve(true);
           } catch (error) {
             console.log(error);
+            console.log(error?.response?.body);
+
             logger.error(error);
             reject(false);
           }

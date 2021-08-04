@@ -198,16 +198,12 @@ export default class DashboardRecommendationService {
       try {
         const data: TopLevel<FacetedUnitSpec> = await this.getSpec(dashboard.userDatasets[0].dataset, spec, owner, dashboard.userDatasets[0]);
 
-        console.log(data);
-
         let mark = data.mark === 'point' ? 'bar' : data.mark;
 
         if (owner.preferences) {
           const type = owner.preferences.chartTypes.find((chartType) => {
             const fieldX = (data.encoding.x as FieldDefBase<Field>).field.toString();
             const fieldY = (data.encoding.y as FieldDefBase<Field>).field.toString();
-
-            console.log({ fieldX, fieldY });
 
             const columnX = dashboard.userDatasets[0].columns.find((c) => c.column.name === fieldX);
             const columnY = dashboard.userDatasets[0].columns.find((c) => c.column.name === fieldY);
@@ -232,9 +228,9 @@ export default class DashboardRecommendationService {
           secondDimension: spec.length === 3 ? spec[2].column : null,
           trimValues: spec[0].trimValues,
           mark,
-          userDimension: dashboard.userDatasets[0].columns.find((c) => c.name === spec[0].column.name),
-          userMeasure: dashboard.userDatasets[0].columns.find((c) => c.name === spec[1].column.name),
-          userSecondDimension: spec.length === 3 ? dashboard.userDatasets[0].columns.find((c) => c.name === spec[2].column.name) : null,
+          userDimension: dashboard.userDatasets[0].columns.find((c) => c.column.id === spec[0].column.id),
+          userMeasure: dashboard.userDatasets[0].columns.find((c) => c.column.id === spec[1].column.id),
+          userSecondDimension: spec.length === 3 ? dashboard.userDatasets[0].columns.find((c) => c.column.id === spec[2].column.id) : null,
         });
       } catch (error) {
         console.log(error);
@@ -365,16 +361,26 @@ export default class DashboardRecommendationService {
     let added = false;
 
     if (geoColumns.length > 1) {
-      const hasLat = geoColumns.find((column) => column.name === 'latitude');
-      const hasLng = geoColumns.find((column) => column.name === 'longitude');
-      const dimensions = geoColumns.filter((column) => column.name !== 'latitude' && column.name !== 'longitude').sort((a, b) => b.column.distinctValues - a.column.distinctValues);
+      const hasLat = geoColumns.find((column) => column.name.toLowerCase() === 'latitude');
+      const hasLng = geoColumns.find((column) => column.name.toLowerCase() === 'longitude');
+      const dimensions = geoColumns
+        .filter((column) => column.name.toLowerCase() !== 'latitude' && column.name.toLowerCase() !== 'longitude' && column.column.type !== DatasetColumnType.NUMBER)
+        .sort((a, b) => b.column.distinctValues - a.column.distinctValues);
 
       if (dimensions.length > 0 && hasLat && hasLng) {
         const dimension = dimensions[0];
         const measure = measures[0];
 
         const data = await this.clickHouseService.query(`
-            SELECT ${dimension.column.name}, latitude, longitude , sum(${measure.column.name}) as "${measure.name}" from juno.${dashboard.userDatasets[0].dataset.tableName} group by ${dimension.column.name}, latitude, longitude order by ${dimension.column.name} asc;
+            SELECT 
+              ${dimension.column.name}, 
+              avg(${hasLat.name}) as "latitude", 
+              avg(${hasLng.name}) as "longitude", 
+              ${measure.column.name === 'count' ? 'count(*)' : `sum(${measure.column.name})`} as "${measure.name}" 
+            from juno.${dashboard.userDatasets[0].dataset.tableName} 
+            group by 
+              ${dimension.column.name}
+            order by ${dimension.column.name} asc;
           `);
 
         chartSpecs.splice(0, 0, {
@@ -389,6 +395,8 @@ export default class DashboardRecommendationService {
             values: data,
           },
           encoding: {},
+          userDimension: dashboard.userDatasets[0].columns.find((column) => column.column.id === dimension.column.id),
+          userMeasure: dashboard.userDatasets[0].columns.find((column) => column.column.id === measure.column.id),
         });
 
         added = true;
@@ -398,6 +406,10 @@ export default class DashboardRecommendationService {
     if (geoColumns.length > 0 && !added) {
       const files = fs.readdirSync(path.join(__dirname, '../geojson/'));
       const matchMap: Record<string, Record<string, { total: number; matched: number }>> = {};
+      let higherCount = 0;
+
+      let dimensionColumn: string;
+      let geoFile: string;
 
       for (const filePath of files) {
         const file = JSON.parse(fs.readFileSync(path.join(__dirname, '../geojson/' + filePath), 'utf8'));
@@ -415,26 +427,14 @@ export default class DashboardRecommendationService {
           for (const value of dimensionValues) {
             if (file.features.some((feature) => feature.properties.name === value[dimension.column.name])) {
               matchMap[filePath][dimension.column.name].matched++;
+
+              if (matchMap[filePath][dimension.column.name].matched > higherCount) {
+                higherCount = matchMap[filePath][dimension.column.name].matched;
+                geoFile = filePath;
+                dimensionColumn = dimension.column.name;
+              }
             }
           }
-        }
-      }
-
-      let dimensionColumn: string;
-      let geoFile: string;
-
-      for (const file of Object.keys(matchMap)) {
-        for (const column of Object.keys(matchMap[file])) {
-          if (matchMap[file][column].total === matchMap[file][column].matched) {
-            geoFile = file;
-            dimensionColumn = column;
-
-            break;
-          }
-        }
-
-        if (dimensionColumn) {
-          break;
         }
       }
 
@@ -447,8 +447,8 @@ export default class DashboardRecommendationService {
           chartSpecs.splice(0, 0, {
             id: generateId(),
             mark: 'geoshape',
-            key: dimension.name,
-            value: measure.name,
+            key: dimension.column.name,
+            value: measure.column.name,
             dimension: dimension.column,
             measure: measure.column,
             trimValues: false,
@@ -459,6 +459,8 @@ export default class DashboardRecommendationService {
             },
             encoding: {},
             geoFile,
+            userDimension: dashboard.userDatasets[0].columns.find((column) => column.column.id === dimension.column.id),
+            userMeasure: dashboard.userDatasets[0].columns.find((column) => column.column.id === measure.column.id),
           });
         }
       }
@@ -785,7 +787,8 @@ export default class DashboardRecommendationService {
     const measure = this.encodingFieldQuery(spec[1]);
 
     const minMax = await this.clickHouseService.query(`SELECT min(${dimension.field}) as "min", max(${dimension.field}) as "max" FROM juno.${dataset.tableName}`);
-    const min = minMax[0]['min'];
+
+    const min = +minMax[0]['min'];
 
     const numberOfBins = 10;
     const length = queryResult.length;
@@ -810,7 +813,19 @@ export default class DashboardRecommendationService {
         }
       }
 
-      bins[`${start}-${max}`] = arr.reduce((prev, curr) => prev + curr, 0);
+      max = +max.toFixed(2);
+
+      let newMax: string = max.toString();
+
+      if (max > 10000) {
+        newMax = this.prefix(max);
+      }
+
+      const total = arr.reduce((prev, curr) => prev + +curr, 0);
+
+      if (total > 0) {
+        bins[`${start} - ${newMax}`] = total;
+      }
 
       start = max;
     }
@@ -821,15 +836,27 @@ export default class DashboardRecommendationService {
     }));
   }
 
+  private prefix(value: number, precision?: number): string {
+    const units = ' K M G T P E Z Y'.split(' ');
+    const base = 1000;
+
+    if (typeof precision === 'undefined') {
+      precision = 2;
+    }
+
+    if (value == 0 || !isFinite(value)) {
+      return value.toFixed(precision) + units[0];
+    }
+
+    let power = Math.floor(Math.log(Math.abs(value)) / Math.log(base));
+    power = Math.min(power, units.length - 1);
+
+    return (value / Math.pow(base, power)).toFixed(precision) + units[power];
+  }
+
   private async getDataFromClickHouse(dataset: DatasetInterface, spec: DatasetSpecEncoding[], user: UserInterface, userDataset?: UserDatasetInterface) {
     const dimension = this.encodingFieldQuery(spec[0]);
     const measure = this.encodingFieldQuery(spec[1]);
-
-    // avg
-    // sum
-    // min
-    // max
-    // median
 
     let aggregation = 'sum';
 
@@ -852,8 +879,6 @@ export default class DashboardRecommendationService {
         } else {
           aggregation = map[aggregation];
         }
-
-        console.log(aggregation);
       }
     }
 
@@ -900,7 +925,9 @@ export default class DashboardRecommendationService {
       }
     }
 
-    return this.clickHouseService.query(query);
+    const response = await this.clickHouseService.postQuery(query);
+
+    return JSON.parse(response.body)['data'];
   }
 
   private getDateInfo(column: DatasetColumnInterface, dataset: DatasetInterface): Promise<Object[]> {

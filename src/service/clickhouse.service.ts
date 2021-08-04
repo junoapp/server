@@ -21,6 +21,13 @@ export default class ClickHouseService {
     return this.clickhouse.query(query).toPromise();
   }
 
+  public postQuery(query: string) {
+    return got(`${ClickHouseService.CLICK_HOUSE_URL}:${ClickHouseService.CLICK_HOUSE_PORT}/?default_format=JSON`, {
+      method: 'POST',
+      body: query,
+    });
+  }
+
   public post(query: string, data: ReadStream) {
     return got(`${ClickHouseService.CLICK_HOUSE_URL}:${ClickHouseService.CLICK_HOUSE_PORT}/?query=${query}`, {
       method: 'POST',
