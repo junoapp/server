@@ -93,6 +93,8 @@ export default class DashboardRecommendationService {
 
     stackedDimensions = stackedDimensions.filter((a) => a.distinctValues < 10).sort((a, b) => a.distinctValues - b.distinctValues);
 
+    console.log(stackedDimensions);
+
     newData.dimensions.sort((a, b) => {
       if (a.type === DatasetColumnType.DATE) {
         return -1;
@@ -861,7 +863,7 @@ export default class DashboardRecommendationService {
     let aggregation = 'sum';
 
     if (userDataset) {
-      const userColumn = userDataset.columns.find((c) => c.name === measure.field.toString());
+      const userColumn = userDataset.columns.find((c) => c.column.name === measure.field.toString());
 
       if (userColumn) {
         aggregation = userColumn.aggregate.toLowerCase();

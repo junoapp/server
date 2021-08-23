@@ -62,6 +62,8 @@ export default class UserService {
 
     userPreference = await this.entityManager.save(UserPreferences, userPreference);
 
+    user.visLiteracy = preferences.visLiteracy;
+    user.disability = preferences.disability;
     user.preferences = userPreference;
     await this.entityManager.save(User, user);
 

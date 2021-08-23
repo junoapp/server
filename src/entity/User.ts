@@ -16,7 +16,7 @@ export class User extends BasicColumns implements UserInterface {
   name: string;
 
   @Column({ nullable: true })
-  disability?: UserDisability;
+  disability?: string;
 
   @Column()
   visLiteracy: UserVisLiteracy;

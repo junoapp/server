@@ -48,6 +48,7 @@ createConnection({
     app.use(cors());
     app.use(morgan('dev'));
     app.use(express.static('geojson'));
+    app.use(express.static('public'));
 
     logger.info('Loading routes...');
     AppRoutes.forEach((route) => {
