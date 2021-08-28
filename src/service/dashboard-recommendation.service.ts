@@ -213,9 +213,9 @@ export default class DashboardRecommendationService {
             return columnX.column.type.toLocaleLowerCase() === chartType.typeX.toLowerCase() && columnY.column.type.toLocaleLowerCase() === chartType.typeY.toLowerCase();
           });
 
-          if (type.chart === PreferenceType.Bar) {
+          if (type?.chart === PreferenceType.Bar) {
             mark = 'bar';
-          } else if (type.chart === PreferenceType.Line) {
+          } else if (type?.chart === PreferenceType.Line) {
             mark = 'line';
           }
         }
