@@ -330,6 +330,7 @@ export default class DashboardRecommendationService {
             values: [+total],
           },
           encoding: {},
+          userMeasure: measure,
         });
       }
     }

@@ -146,6 +146,7 @@ export default class DashboardService {
           userDatasetColumn.name = columnRequest.name;
           userDatasetColumn.removed = columnRequest.removed;
           userDatasetColumn.aggregate = columnRequest.aggregate;
+          userDatasetColumn.numberType = columnRequest.numberType;
 
           await entityManager.save(UserDatasetColumn, userDatasetColumn);
         }
@@ -176,6 +177,7 @@ export default class DashboardService {
           userDatasetColumn.name = columnRequest.name;
           userDatasetColumn.removed = columnRequest.removed;
           userDatasetColumn.aggregate = columnRequest.aggregate;
+          userDatasetColumn.numberType = columnRequest.numberType;
 
           await entityManager.save(UserDatasetColumn, userDatasetColumn);
         }

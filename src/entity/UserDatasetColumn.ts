@@ -1,4 +1,4 @@
-import { DatasetColumnInterface, DatasetColumnRole, DatasetSchemaAggregateFunction } from '@junoapp/common';
+import { DatasetColumnInterface, DatasetColumnNumberType, DatasetColumnRole, DatasetSchemaAggregateFunction } from '@junoapp/common';
 import { UserDatasetInterface } from '@junoapp/common/dist/entity/UserDataset';
 import { UserDatasetColumnInterface } from '@junoapp/common';
 import { Column, Entity, PrimaryGeneratedColumn, ManyToOne } from 'typeorm';
@@ -23,6 +23,9 @@ export class UserDatasetColumn extends BasicColumns implements UserDatasetColumn
 
   @Column()
   removed: boolean;
+
+  @Column({ nullable: true })
+  numberType: DatasetColumnNumberType;
 
   @ManyToOne((type) => UserDataset, (dataset) => dataset.columns)
   userDataset: UserDatasetInterface;
